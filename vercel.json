@@ -1,0 +1,7 @@
+{
+  "functions": {
+    "api/pipedrive.ts": {
+      "runtime": "@vercel/node@3.0.0"
+    }
+  }
+}
