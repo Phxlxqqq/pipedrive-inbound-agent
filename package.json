@@ -1,21 +1,19 @@
 {
   "name": "pipedrive-inbound-agent",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+  "private": true,
+  "description": "Serverless Webhook-Handler für Pipedrive (Vercel Functions)",
+  "license": "MIT",
+  "engines": {
+    "node": "22.x"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "dependencies": {
-    "express": "^5.1.0"
+  "scripts": {
+    "vercel-build": "echo \"no build step for api functions\"",
+    "build": "echo \"nothing to build\"",
+    "start": "echo \"use Vercel to run serverless function\""
   },
   "devDependencies": {
-    "@types/express": "^5.0.5",
     "@types/node": "^24.10.0",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.9.3"
+    "typescript": "^5.6.0"
   }
 }
