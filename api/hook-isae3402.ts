@@ -1,4 +1,3 @@
-// api/pipedrive.ts
 export default async function handler(req: any, res: any) {
   try {
     if (process.env.KILL_SWITCH === '1') return res.status(200).send('noop (kill switch)');
@@ -12,50 +11,52 @@ export default async function handler(req: any, res: any) {
     // ENV
     const PD_API   = process.env.PD_API!;
     const PD_TOKEN = process.env.PD_API_TOKEN!;
-    const STAGE_QUALIFIED = Number(process.env.STAGE_ID_QUALIFIED); // ID der Stage "Qualified"
+    const STAGE_QUALIFIED = Number(process.env.STAGE_ID_QUALIFIED);
     const PRODUCT_TRIGGER = (process.env.PRODUCT_TRIGGER || 'ISAE 3402').toLowerCase();
 
-    const F_ENRICH = process.env.FIELD_ENRICHMENT_SUMMARY!; // z.B. cf_...
-    const F_INTRO  = process.env.FIELD_EMAIL_INTRO!;        // z.B. cf_...
-    const F_DONE   = process.env.FIELD_AI_ENRICHED!;        // z.B. cf_...
+    const F_ENRICH = process.env.FIELD_ENRICHMENT_SUMMARY!;
+    const F_INTRO  = process.env.FIELD_EMAIL_INTRO!;
+    const F_DONE   = process.env.FIELD_AI_ENRICHED!;
 
     if (!PD_API || !PD_TOKEN || !STAGE_QUALIFIED || !F_ENRICH || !F_INTRO || !F_DONE) {
       console.error('Missing envs'); return res.status(500).send('Missing environment variables');
     }
 
-    // Payload
     const body  = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
     const meta  = body?.meta || {};
     const curr  = body?.current || {};
-    const action: string = (meta?.action || '').toLowerCase();
+    const action = String(meta?.action || '').toLowerCase();
 
-    // Nur deal.created (added)
+    // Nur Deal.created (added) – alles andere ignorieren
     if (meta?.object !== 'deal' || action !== 'added') {
-      console.log('ignored (not deal.added)'); return res.status(200).send('ignored');
+      console.log('ignored (not deal.added)');
+      return res.status(200).send('ignored');
     }
 
-    const dealId: number = curr?.id;
-    const title: string  = curr?.title || '';
-    const stageId: number = Number(curr?.stage_id);
+    const dealId  = Number(curr?.id);
+    const title   = String(curr?.title || '');
+    const stageId = Number(curr?.stage_id);
 
-    // Filter: Stage Qualified + Titel enthält "ISAE 3402"
+    // Filter: Stage Qualified + Titel enthält ISAE 3402
     const match = stageId === STAGE_QUALIFIED && title.toLowerCase().includes(PRODUCT_TRIGGER);
-    if (!match) { console.log('ignored (no match)'); return res.status(200).send('ignored'); }
+    if (!match) { console.log('ignored (no match)', { title, stageId }); return res.status(200).send('ignored'); }
 
     // Schon verarbeitet?
-    const getResp = await fetch(`${PD_API}/deals/${dealId}?api_token=${PD_TOKEN}`);
+    const getResp = await fetch(`${PD_API}/deals/${dealId}`, {
+      headers: { 'Authorization': `Bearer ${PD_TOKEN}` }
+    });
     const getJson = await getResp.json();
     if (getJson?.data?.[F_DONE]) {
       console.log('already enriched', { dealId }); return res.status(200).send('already enriched');
     }
 
-    // --- Enrichment (Placeholder) ---
+    // Placeholder-Content (bis KI aktiv ist)
     const personName = curr?.person_name || '';
     const orgName    = curr?.organization_name || curr?.org_name || '';
     const enrichmentSummary =
-      `Kurzresearch:\n- Person: ${personName || 'n/a'}\n- Unternehmen: ${orgName || 'n/a'}\n- Produkt: ISAE 3402\n- Need: (TODO)\n- Ansatzpunkte: (TODO)`;
+      `Kurzresearch:\n- Person: ${personName || 'n/a'}\n- Unternehmen: ${orgName || 'n/a'}\n- Produkt: ISAE 3402\n- Need: (TODO)`;
     const emailIntro =
-      `Hallo ${personName || 'Team'},\n\nwir haben ${orgName || 'Ihr Unternehmen'} kurz angesehen. Für ISAE 3402 sehen wir typischen Bedarf bei Audit-Vorbereitung, Kontrollnachweisen und effizientem Vorgehen.\nWhitepaper & Kalenderlink findest du unten. Welche Zielsetzung habt ihr konkret?`;
+      `Hallo ${personName || 'Team'},\n\nwir haben ${orgName || 'Ihr Unternehmen'} kurz angesehen... (Platzhalter).`;
 
     // Nur UPDATE – kein POST!
     const updateBody: Record<string, any> = {
@@ -64,11 +65,15 @@ export default async function handler(req: any, res: any) {
       [F_DONE]: true
     };
 
-    const upd = await fetch(`${PD_API}/deals/${dealId}?api_token=${PD_TOKEN}`, {
+    const upd = await fetch(`${PD_API}/deals/${dealId}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${PD_TOKEN}`
+      },
       body: JSON.stringify(updateBody)
     });
+
     const updText = await upd.text();
     console.log('Update deal ->', upd.status, updText);
     if (!upd.ok) return res.status(502).send(`Pipedrive update failed ${upd.status}: ${updText}`);
