@@ -124,7 +124,12 @@ export default async function handler(req: any, res: any) {
     const createResp = await fetch(`${PD_API}/deals?api_token=${PD_TOKEN}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title })
+      body: JSON.stringify({
+        title,
+        pipeline_id: Number(process.env.PIPELINE_ID),
+        stage_id: Number(process.env.STAGE_ID)
+      })
+
     });
 
     const createText = await createResp.text();
