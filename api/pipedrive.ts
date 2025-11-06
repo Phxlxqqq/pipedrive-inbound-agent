@@ -1,6 +1,7 @@
 // api/pipedrive.ts
 export default async function handler(req: any, res: any) {
   try {
+    if (process.env.KILL_SWITCH === '1') return res.status(200).send('noop (kill switch)');
     if (req.method !== 'POST') return res.status(405).send('Method not allowed');
 
     // Basic Auth
@@ -11,12 +12,16 @@ export default async function handler(req: any, res: any) {
     // ENV
     const PD_API   = process.env.PD_API!;
     const PD_TOKEN = process.env.PD_API_TOKEN!;
-    const STAGE_QUALIFIED = Number(process.env.STAGE_ID_QUALIFIED); // ID von "Qualified"
+    const STAGE_QUALIFIED = Number(process.env.STAGE_ID_QUALIFIED); // ID der Stage "Qualified"
     const PRODUCT_TRIGGER = (process.env.PRODUCT_TRIGGER || 'ISAE 3402').toLowerCase();
 
-    const F_ENRICH = process.env.FIELD_ENRICHMENT_SUMMARY!; // z.B. cf_abc...
-    const F_INTRO  = process.env.FIELD_EMAIL_INTRO!;        // z.B. cf_def...
-    const F_DONE   = process.env.FIELD_AI_ENRICHED!;        // z.B. cf_xyz...
+    const F_ENRICH = process.env.FIELD_ENRICHMENT_SUMMARY!; // z.B. cf_...
+    const F_INTRO  = process.env.FIELD_EMAIL_INTRO!;        // z.B. cf_...
+    const F_DONE   = process.env.FIELD_AI_ENRICHED!;        // z.B. cf_...
+
+    if (!PD_API || !PD_TOKEN || !STAGE_QUALIFIED || !F_ENRICH || !F_INTRO || !F_DONE) {
+      console.error('Missing envs'); return res.status(500).send('Missing environment variables');
+    }
 
     // Payload
     const body  = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
@@ -24,31 +29,24 @@ export default async function handler(req: any, res: any) {
     const curr  = body?.current || {};
     const action: string = (meta?.action || '').toLowerCase();
 
-    // ❗Nur Deal.created (added) verarbeiten – alles andere ignorieren
+    // Nur deal.created (added)
     if (meta?.object !== 'deal' || action !== 'added') {
-      console.log('ignored (not deal.added)', { object: meta?.object, action });
-      return res.status(200).send('ignored');
+      console.log('ignored (not deal.added)'); return res.status(200).send('ignored');
     }
 
     const dealId: number = curr?.id;
     const title: string  = curr?.title || '';
     const stageId: number = Number(curr?.stage_id);
 
-    // Filter: Stage = Qualified & Title enthält ISAE 3402
+    // Filter: Stage Qualified + Titel enthält "ISAE 3402"
     const match = stageId === STAGE_QUALIFIED && title.toLowerCase().includes(PRODUCT_TRIGGER);
-    if (!match) {
-      console.log('ignored (stage/title no match)', { title, stageId, STAGE_QUALIFIED, PRODUCT_TRIGGER });
-      return res.status(200).send('ignored');
-    }
+    if (!match) { console.log('ignored (no match)'); return res.status(200).send('ignored'); }
 
-    // Deal abrufen, um schon verarbeitete zu erkennen
+    // Schon verarbeitet?
     const getResp = await fetch(`${PD_API}/deals/${dealId}?api_token=${PD_TOKEN}`);
     const getJson = await getResp.json();
-    const already = getJson?.data?.[F_DONE];
-
-    if (already) {
-      console.log('already enriched', { dealId });
-      return res.status(200).send('already enriched');
+    if (getJson?.data?.[F_DONE]) {
+      console.log('already enriched', { dealId }); return res.status(200).send('already enriched');
     }
 
     // --- Enrichment (Placeholder) ---
@@ -59,7 +57,7 @@ export default async function handler(req: any, res: any) {
     const emailIntro =
       `Hallo ${personName || 'Team'},\n\nwir haben ${orgName || 'Ihr Unternehmen'} kurz angesehen. Für ISAE 3402 sehen wir typischen Bedarf bei Audit-Vorbereitung, Kontrollnachweisen und effizientem Vorgehen.\nWhitepaper & Kalenderlink findest du unten. Welche Zielsetzung habt ihr konkret?`;
 
-    // Nur UPDATE auf denselben Deal (kein neues Objekt erzeugen!)
+    // Nur UPDATE – kein POST!
     const updateBody: Record<string, any> = {
       [F_ENRICH]: enrichmentSummary,
       [F_INTRO]: emailIntro,
