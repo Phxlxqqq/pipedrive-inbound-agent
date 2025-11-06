@@ -4,6 +4,7 @@ type PDDeal = {
   id: number;
   title?: string;
   stage_id?: number;
+  pipeline_id?: number;
   person_name?: string;
   organization_name?: string;
   org_name?: string;
@@ -11,7 +12,7 @@ type PDDeal = {
 
 export default async function handler(req: any, res: any) {
   try {
-    // Kill-Switch (Notbremse)
+    // Notbremse
     if (process.env.KILL_SWITCH === '1') {
       console.log('kill-switch active');
       return res.status(200).send('noop (kill switch)');
@@ -19,67 +20,65 @@ export default async function handler(req: any, res: any) {
 
     if (req.method !== 'POST') return res.status(405).send('Method not allowed');
 
-    // ---- Basic Auth prüfen
+    // Basic Auth
     const auth = req.headers.authorization || '';
     const expected =
-      'Basic ' +
-      Buffer.from(`${process.env.BASIC_USER}:${process.env.BASIC_PASS}`).toString('base64');
-
+      'Basic ' + Buffer.from(`${process.env.BASIC_USER}:${process.env.BASIC_PASS}`).toString('base64');
     if (auth !== expected) {
       console.log('auth failed');
       return res.status(401).send('Unauthorized');
     }
 
-    // ---- ENV laden
-    const PD_API = process.env.PD_API!;
+    // ENVs
+    const PD_API   = process.env.PD_API!;
     const PD_TOKEN = process.env.PD_API_TOKEN!;
-    const STAGE_QUALIFIED = Number(process.env.STAGE_ID_QUALIFIED);
+
+    const PIPELINE_ID = Number(process.env.PIPELINE_ID); // die Pipeline, in der die Webform-Deals landen (z. B. Leads)
+    const STAGE_ID    = Number(process.env.STAGE_ID);    // die "Qualified"-Stage in genau dieser Pipeline
     const PRODUCT_TRIGGER = (process.env.PRODUCT_TRIGGER || 'ISAE 3402').toLowerCase();
 
-    // Custom Field Keys (optional – wenn nicht gesetzt, werden sie einfach übersprungen)
-    const F_ENRICH = process.env.FIELD_ENRICHMENT_SUMMARY; // z.B. cf_abc...
-    const F_INTRO = process.env.FIELD_EMAIL_INTRO;         // z.B. cf_def...
-    const F_DONE = process.env.FIELD_AI_ENRICHED;          // z.B. cf_xyz... (Checkbox/YesNo)
+    // optional: Custom-Field-Keys (cf_…)
+    const F_ENRICH = process.env.FIELD_ENRICHMENT_SUMMARY; // text/longtext
+    const F_INTRO  = process.env.FIELD_EMAIL_INTRO;        // text/longtext
+    const F_DONE   = process.env.FIELD_AI_ENRICHED;        // yes/no (boolean)
 
-    if (!PD_API || !PD_TOKEN || !STAGE_QUALIFIED) {
-      console.error('Missing core envs', {
-        PD_API: !!PD_API,
-        PD_TOKEN: !!PD_TOKEN,
-        STAGE_QUALIFIED,
-      });
+    if (!PD_API || !PD_TOKEN || !PIPELINE_ID || !STAGE_ID) {
+      console.error('Missing core envs', { PD_API: !!PD_API, PD_TOKEN: !!PD_TOKEN, PIPELINE_ID, STAGE_ID });
       return res.status(500).send('Missing environment variables');
     }
 
-    // ---- Payload parsen
-    const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
-    const meta = body?.meta || {};
+    // Payload
+    const body  = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
+    const meta  = body?.meta || {};
     const curr: PDDeal = body?.current || {};
 
     const action = String(meta?.action || '').toLowerCase();
     const object = String(meta?.object || '').toLowerCase();
 
-    // nur deal.created (added) verarbeiten
+    // Nur Deal.Created (added)
     if (object !== 'deal' || action !== 'added') {
       console.log('ignored (not deal.added)', { object, action });
       return res.status(200).send('ignored');
     }
 
-    const dealId = Number(curr?.id);
-    const title = String(curr?.title || '');
-    const stageId = Number(curr?.stage_id);
+    const dealId     = Number(curr?.id);
+    const title      = String(curr?.title || '');
+    const stageId    = Number(curr?.stage_id);
+    const pipelineId = Number(curr?.pipeline_id);
 
-    // Filter: Stage = Qualified + Titel enthält "ISAE 3402"
-    const titleMatch = title.toLowerCase().includes(PRODUCT_TRIGGER);
-    const stageMatch = stageId === STAGE_QUALIFIED;
+    // Filter: richtige Pipeline + richtige Stage + Titel enthält Produkt
+    const titleMatch    = title.toLowerCase().includes(PRODUCT_TRIGGER);
+    const stageMatch    = stageId === STAGE_ID;
+    const pipelineMatch = pipelineId === PIPELINE_ID;
 
-    if (!titleMatch || !stageMatch) {
-      console.log('ignored (no match)', { title, stageId, titleMatch, stageMatch });
+    if (!titleMatch || !stageMatch || !pipelineMatch) {
+      console.log('ignored (no match)', { title, stageId, pipelineId, titleMatch, stageMatch, pipelineMatch });
       return res.status(200).send('ignored');
     }
 
-    // ---- Deal laden (um Flag zu prüfen)
+    // Deal laden (Flag prüfen)
     const getResp = await fetch(`${PD_API}/deals/${dealId}`, {
-      headers: { Authorization: `Bearer ${PD_TOKEN}` },
+      headers: { Authorization: `Bearer ${PD_TOKEN}` }
     });
     const getText = await getResp.text();
     if (!getResp.ok) {
@@ -94,9 +93,9 @@ export default async function handler(req: any, res: any) {
       return res.status(200).send('already enriched');
     }
 
-    // ---- Platzhalter-Inhalte (bis KI aktiv ist)
+    // Platzhalter-Inhalte (bis KI live ist)
     const personName = curr?.person_name || '';
-    const orgName = curr?.organization_name || curr?.org_name || '';
+    const orgName    = curr?.organization_name || curr?.org_name || '';
 
     const enrichmentSummary =
       `Kurzresearch (Platzhalter):\n` +
@@ -112,25 +111,25 @@ export default async function handler(req: any, res: any) {
       `Anbei Whitepaper & Kalenderlink. Welche Zielsetzung verfolgen Sie konkret?\n\n` +
       `Viele Grüße`;
 
-    // ---- Update-Body nur mit Feldern, die wirklich vorhanden sind
+    // Update-Body nur mit vorhandenen Feldern
     const updateBody: Record<string, any> = {};
     if (F_ENRICH) updateBody[F_ENRICH] = enrichmentSummary;
-    if (F_INTRO) updateBody[F_INTRO] = emailIntro;
-    if (F_DONE) updateBody[F_DONE] = true;
+    if (F_INTRO)  updateBody[F_INTRO]  = emailIntro;
+    if (F_DONE)   updateBody[F_DONE]   = true;
 
     if (Object.keys(updateBody).length === 0) {
-      console.log('no custom fields configured — nothing to update, but success', { dealId });
+      console.log('no custom fields configured — nothing to update, success', { dealId });
       return res.status(200).send('ok (no fields configured)');
     }
 
-    // ---- Deal updaten (PUT) – KEIN CREATE!
+    // Nur UPDATE – kein CREATE!
     const upd = await fetch(`${PD_API}/deals/${dealId}`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${PD_TOKEN}`,
+        Authorization: `Bearer ${PD_TOKEN}`
       },
-      body: JSON.stringify(updateBody),
+      body: JSON.stringify(updateBody)
     });
     const updText = await upd.text();
     console.log('Update deal ->', upd.status, updText.slice(0, 200));
