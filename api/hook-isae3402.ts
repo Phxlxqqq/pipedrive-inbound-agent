@@ -238,19 +238,37 @@ async function generateEmailIntroLLM(input: {
   if (!apiKey) throw new Error('OPENAI_API_KEY missing');
 
   const prompt = [
-    `Schreibe eine kurze, präzise B2B-Erstansprache (Deutsch).`,
-    `70–95 Wörter. Keine Superlative, kein Marketing-Sprech, keine Bulletpoints, keine Emojis.`,
-    `Aufgabe: Erkläre knapp, WARUM ${input.orgName || 'das Unternehmen'} ${input.product} benötigen könnte.`,
-    `Nutze nur Hinweise aus "Signale" und "Auszug". Wenn unklar, vorsichtig formulieren ("häufig relevant, wenn …").`,
-    `Person: ${input.personName || 'Team'}`,
-    `Unternehmen: ${input.orgName || 'Unbekannt'}`,
-    input.signalList ? `Signale: ${input.signalList}` : '',
-    input.siteSnippet ? `Auszug: ${input.siteSnippet}` : '',
-    `Struktur: 1) Relevanz 2) konkreter Nutzen ${input.product} 3) Beispiel (z. B. Change-/Access-/Operations-Kontrollen) 4) zwei Abschlusssätze.`,
-    `Ganz am Ende bitte zwei Tokens (ohne Klammern): WHITEPAPER_LINK und KALENDER_LINK`,
-    `Beispiel: "Weitere Details im Whitepaper: WHITEPAPER_LINK. Alternativ direkt sprechen: KALENDER_LINK."`,
-    `Ausgabe nur als BODY-Text (ohne SUBJECT), 3–5 Sätze, kein Grußnamen-Platzhalter.`,
-  ].filter(Boolean).join('\n');
+    // Ziel & Ton
+    "Schreibe eine kurze, präzise B2B-Erstansprache auf Deutsch.",
+    "70–95 Wörter. 3–5 Sätze. Kein Betreff. Kein Gruß. Keine Emojis. Keine Bulletpoints.",
+    "Ton: sachlich, respektvoll, lösungsorientiert. Keine Superlative. Kein Marketing-Sprech.",
+
+    // Kontext
+    `Adressat (optional): ${input.personName || "Team"}`,
+    `Unternehmen: ${input.orgName || "Unbekannt"}`,
+    input.signalList ? `Signale (nur verwenden, wenn wirklich passend): ${input.signalList}` : "",
+    input.siteSnippet ? `Auszug (nur vorsichtig paraphrasieren, nichts frei erfinden): ${input.siteSnippet}` : "",
+
+    // Aufgabe
+    `Aufgabe: Erkläre knapp, WARUM ${input.orgName || "das Unternehmen"} ${input.product} in seinem Umfeld benötigt – z. B. weil Beschaffungen/Nachweise für interne Kontrollen gefordert sind.`,
+
+    // Struktur (eng geführt)
+    "Struktur:",
+    "1) Einstieg mit konkretem Anwendungskontext des Unternehmens (aus Signalen/Auszug; andernfalls: industrie-agnostisch, aber plausibel).",
+    `2) Konkreter Nutzen von ${input.product} (z. B. weniger Aufwand in Ausschreibungen, prüfbare Kontrollen, schnellerer Vendor-Onboarding).`,
+    "3) Ein Beispiel-Kontext – z. B. Änderungen an Systemen, Zugriffe auf Daten, Betriebs- oder Übergabeprozesse.",
+    "4) Abschluss: zwei knappe Sätze; dann zwei separate Call-to-Action-Zeilen (siehe unten).",
+
+    // Sprachregeln
+    "Verbote: keine Floskeln wie „Kundenbeziehungen stärken“, „branchenführend“, „maßgeschneidert“, „innovativ“.",
+    "Keine Behauptungen ohne Basis. Wenn unklar: Formulierungen wie „häufig gefordert“, „typisch in Ausschreibungen“.",
+    "Kein Platzhalter-Gruß (die Einleitung übernimmt ein anderes System).",
+
+    // Formatvorgaben für CTAs (zwingend)
+    "Am Ende des Textes GENAU diese zwei Zeilen, jeweils alleinstehend:",
+    "Weitere Details im Whitepaper: WHITEPAPER_LINK.",
+    "Wenn Sie das Thema kurz einordnen möchten: KALENDER_LINK."
+  ].filter(Boolean).join('\\n');
 
   const body = {
     model,
