@@ -28,6 +28,11 @@ type PDDeal = {
   [k: string]: any;
 };
 
+function isNum(n: any): n is number {
+  return typeof n === 'number' && Number.isFinite(n);
+}
+
+
 function asNumber(x: any): number | undefined {
   const n = Number(x);
   return Number.isFinite(n) ? n : undefined;
@@ -434,14 +439,20 @@ export default async function handler(req: any, res: any) {
         if (hit?.id) {
           orgId = hit.id;
           orgName = hit.name || formOrgName;
-          await pdAttachDealToOrg(PD_API, dealId, orgId);
+          if (isNum(orgId)) {
+            await pdAttachDealToOrg(PD_API, dealId, orgId);
+          }
+
           console.log('attached deal to existing org by form name', { dealId, orgId, orgName });
         } else {
           const created = await pdCreateOrg(PD_API, formOrgName);
           if (created?.id) {
             orgId = created.id;
             orgName = created.name || formOrgName;
-            await pdAttachDealToOrg(PD_API, dealId, orgId);
+            if (isNum(orgId)) {
+              await pdAttachDealToOrg(PD_API, dealId, orgId);
+            }
+
             console.log('created org from form name and attached', { dealId, orgId, orgName });
           }
         }
