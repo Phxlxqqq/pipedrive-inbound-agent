@@ -1,5 +1,5 @@
 // api/hook-isae3402.ts
-// Vollversion – robust, idempotent, Node.js Runtime
+// Vollversion – robust, idempotent, Node.js Runtime (mit Branchen-Klassifikation, dynamischem Prompt & Anti-Halluzination)
 // ENVs (Vercel/Next.js):
 // Pflicht: PD_API, PD_API_TOKEN|PD_OAUTH_TOKEN, PIPELINE_ID, STAGE_ID, WEBHOOK_SECRET, OPENAI_API_KEY
 // Custom Fields (interne Keys cf_…): FIELD_ENRICHMENT_SUMMARY, FIELD_EMAIL_INTRO, FIELD_AI_ENRICHED, optional FIELD_SPAM
@@ -31,7 +31,6 @@ type PDDeal = {
 function isNum(n: any): n is number {
   return typeof n === 'number' && Number.isFinite(n);
 }
-
 
 function asNumber(x: any): number | undefined {
   const n = Number(x);
@@ -209,6 +208,49 @@ async function gatherCompanySignals(domain: string) {
 }
 
 // -----------------------------------------------------------
+// Branchen-Klassifikation & dynamisches Framing
+// -----------------------------------------------------------
+function classifyIndustry(
+  orgName?: string,
+  snippet?: string,
+  signals: string[] = []
+): { tag: string; frame: string } {
+  const text = `${orgName || ''} ${snippet || ''}`.toLowerCase();
+  const has = (arr: (string | RegExp)[]) =>
+    arr.some((k) => (typeof k === 'string' ? text.includes(k.toLowerCase()) : (k as RegExp).test(text)));
+
+  const rules: Array<{ tag: string; keys: (string | RegExp)[]; frame: string }> = [
+    { tag: 'M&A', keys: ['m&a','mergers','acquisitions','deal advisory','corporate finance','due diligence','buy-side','sell-side'],
+      frame: 'Fokus auf Due-Diligence-Phasen: extern testierte Kontrollen beschleunigen Q&A, reduzieren Rückfragen und machen operative Risiken bewertbar.' },
+    { tag: 'SaaS', keys: ['saas','subscription','api','plattform','cloud','multi-tenant'],
+      frame: 'In SaaS-/Cloud-Umgebungen werden prüfbare Kontrollen zu Changes, Zugriffsrechten und Betrieb häufig in Ausschreibungen gefordert.' },
+    { tag: 'E-Commerce', keys: ['e-commerce','shop','marketplace','merchant','checkout','cart'],
+      frame: 'Bei Händler-/Plattform-Integrationen erleichtern testierte Kontrollen das Vendor-Onboarding und verringern Rückfragen zu Datenschnittstellen.' },
+    { tag: 'FinTech', keys: ['fintech','payment','psd2','core banking','banking','kredit'],
+      frame: 'In regulierten Umfeldern zählen nachweisbare Kontrollen für Partnerbanken und Prüfer – extern testiert spart Abstimmungsaufwand.' },
+    { tag: 'Healthcare', keys: ['gesundheit','health','clinic','patient','medizin','hipaa'],
+      frame: 'Bei sensiblen Gesundheitsdaten unterstützen testierte Prozesse die Risikoeinstufung und Zusammenarbeit mit Trägern/Kassen.' },
+    { tag: 'Public Sector', keys: ['öffentlicher dienst','kommune','ministerium','behörde','vergabe','vergaberecht'],
+      frame: 'Im öffentlichen Sektor sind formale Nachweise und Vergabeanforderungen zentral – testierte Kontrollen beschleunigen Verfahren.' },
+    { tag: 'Logistics', keys: ['logistik','transport','fulfillment','warehouse','lieferkette'],
+      frame: 'Bei Prozessketten schaffen prüfbare Betriebs-/Änderungsprozesse Transparenz und verringern Übergaberisiken.' },
+  ];
+
+  for (const rule of rules) { if (has(rule.keys)) return { tag: rule.tag, frame: rule.frame }; }
+
+  // einfache Fallbacks über Signals
+  if (signals.some((s) => /finance|finanz/i.test(s))) {
+    return { tag: 'Finance', frame: 'Für Finanzpartner und Prüfer sind testierte Kontrollen ein etablierter Nachweis – das reduziert Rückfragen in Prüfungen.' };
+  }
+  return { tag: 'Generic', frame: 'Externe Testate zu Änderungen, Zugriffsrechten und Betriebsprozessen reduzieren Nachweishürden und beschleunigen Freigaben.' };
+}
+
+function buildIndustryFrame(orgName?: string, snippet?: string, signals: string[] = []): string {
+  const { tag, frame } = classifyIndustry(orgName, snippet, signals);
+  return `Branchen-Frame (${tag}): ${frame}`;
+}
+
+// -----------------------------------------------------------
 // Link-Labels & Builder (HTML-Anker + Plain-Text)
 // -----------------------------------------------------------
 const WP_LABEL_DEFAULT = 'Whitepaper ISAE 3402';
@@ -237,49 +279,54 @@ async function generateEmailIntroLLM(input: {
   const model = process.env.LLM_MODEL || 'gpt-4o-mini';
   if (!apiKey) throw new Error('OPENAI_API_KEY missing');
 
+  const signals = (input.signalList || '').split(',').map((s) => s.trim()).filter(Boolean);
+  const industryFrame = buildIndustryFrame(input.orgName, input.siteSnippet, signals);
+
   const prompt = [
     // Ziel & Ton
-    "Schreibe eine kurze, präzise B2B-Erstansprache auf Deutsch.",
-    "70–95 Wörter. 3–5 Sätze. Kein Betreff. Kein Gruß. Keine Emojis. Keine Bulletpoints.",
-    "Ton: sachlich, respektvoll, lösungsorientiert. Keine Superlative. Kein Marketing-Sprech.",
+    'Schreibe eine kurze, präzise B2B-Erstansprache auf Deutsch.',
+    '70–95 Wörter. 3–5 Sätze. Kein Betreff. Kein Gruß. Keine Emojis. Keine Bulletpoints.',
+    'Ton: sachlich, respektvoll, lösungsorientiert. Keine Superlative. Kein Marketing-Sprech.',
 
     // Kontext
-    `Adressat (optional): ${input.personName || "Team"}`,
-    `Unternehmen: ${input.orgName || "Unbekannt"}`,
-    input.signalList ? `Signale (nur verwenden, wenn wirklich passend): ${input.signalList}` : "",
-    input.siteSnippet ? `Auszug (nur vorsichtig paraphrasieren, nichts frei erfinden): ${input.siteSnippet}` : "",
+    `Adressat (optional): ${input.personName || 'Team'}`,
+    `Unternehmen: ${input.orgName || 'Unbekannt'}`,
+    signals.length ? `Signale (nur verwenden, wenn wirklich passend): ${signals.join(', ')}` : '',
+    input.siteSnippet ? `Auszug (nur vorsichtig paraphrasieren, nichts frei erfinden): ${input.siteSnippet}` : '',
+
+    // Dynamisches Branchen-Framing
+    industryFrame,
 
     // Aufgabe
-    `Aufgabe: Erkläre knapp, WARUM ${input.orgName || "das Unternehmen"} ${input.product} in seinem Umfeld benötigt – z. B. weil Beschaffungen/Nachweise für interne Kontrollen gefordert sind.`,
+    `Aufgabe: Erkläre knapp, WARUM ${input.orgName || 'das Unternehmen'} ${input.product} benötigt – mit Bezug auf typische Nachweise/Anforderungen in dieser Branche.`,
 
     // Struktur (eng geführt)
-    "Struktur:",
-    "1) Einstieg mit konkretem Anwendungskontext des Unternehmens (aus Signalen/Auszug; andernfalls: industrie-agnostisch, aber plausibel).",
-    `2) Konkreter Nutzen von ${input.product} (z. B. weniger Aufwand in Ausschreibungen, prüfbare Kontrollen, schnellerer Vendor-Onboarding).`,
-    "3) Ein Beispiel-Kontext – z. B. Änderungen an Systemen, Zugriffe auf Daten, Betriebs- oder Übergabeprozesse.",
-    "4) Abschluss: zwei knappe Sätze; dann zwei separate Call-to-Action-Zeilen (siehe unten).",
+    'Struktur:',
+    '1) Einstieg mit kurzem, plausiblen Anwendungskontext (aus Signalen/Auszug; wenn unklar, neutral).',
+    `2) Konkreter Nutzen von ${input.product} (z. B. weniger Rückfragen in Prüf-/Beschaffungsprozessen, prüfbare Kontrollen, schnelleres Onboarding).`,
+    '3) Ein Beispiel-Kontext – z. B. Änderungen an Systemen, Zugriffe auf Daten, Betriebs-/Übergabeprozesse.',
+    '4) Abschluss: zwei knappe Sätze; dann zwei separate Call-to-Action-Zeilen (siehe unten).',
 
-    // Sprachregeln
-    "Verbote: keine Floskeln wie „Kundenbeziehungen stärken“, „branchenführend“, „maßgeschneidert“, „innovativ“.",
-    "Keine Behauptungen ohne Basis. Wenn unklar: Formulierungen wie „häufig gefordert“, „typisch in Ausschreibungen“.",
-    "Kein Platzhalter-Gruß (die Einleitung übernimmt ein anderes System).",
-    "Es dürfen KEINE neuen Produkt- oder Zertifikatsbezeichnungen erfunden werden.",
-    "Der einzige zulässige Produktname ist exakt: \"ISAE 3402\". Keine Zusätze wie \"Pack\", \"Lead\", \"Suite\", \"iAP\" usw.",
-    "Falls unklar, neutral formulieren („ISAE 3402 Bericht“, „ISAE 3402 Nachweis“).",
+    // Harte Verbotsregeln / Anti-Halluzination
+    'Es dürfen KEINE neuen Produkt- oder Zertifikatsbezeichnungen erfunden werden.',
+    'Der einzige zulässige Produktname ist exakt: "ISAE 3402". Keine Zusätze wie "Lead", "Pack", "Suite", "iAP" etc.',
+    'Wenn unklar: neutral formulieren ("ISAE 3402 Bericht" / "ISAE 3402 Nachweis").',
+    'Verbote: keine Floskeln wie „branchenführend“, „maßgeschneidert“, „innovativ“.',
+    'Keine Behauptungen ohne Basis. Wenn unklar: Formulierungen wie „häufig gefordert“, „typisch in Ausschreibungen“.',
+    'Kein Platzhalter-Gruß (die Einleitung übernimmt ein anderes System).',
 
-
-    // Formatvorgaben für CTAs (zwingend)
-    "Am Ende des Textes GENAU diese zwei Zeilen, jeweils alleinstehend:",
-    "Weitere Details im Whitepaper: WHITEPAPER_LINK.",
-    "Wenn Sie das Thema kurz einordnen möchten: KALENDER_LINK."
-  ].filter(Boolean).join('\\n');
+    // Formatvorgabe für CTAs (zwingend)
+    'Am Ende des Textes GENAU diese zwei Zeilen, jeweils alleinstehend:',
+    'Weitere Details im Whitepaper: WHITEPAPER_LINK.',
+    'Wenn Sie das Thema kurz einordnen möchten: KALENDER_LINK.'
+  ].filter(Boolean).join('\n');
 
   const body = {
     model,
     temperature: 0,
     max_tokens: 350,
     messages: [
-      { role: 'system', content: 'Du schreibst knappe, personalisierte B2B-Erstansprachen (Deutsch). Keine Halluzinationen – bleib neutral, wenn Infos fehlen.' },
+      { role: 'system', content: 'Du schreibst knappe, personalisierte B2B-Erstansprachen (Deutsch). Keine Halluzinationen – erfinde KEINE Produkt- oder Zertifikatsnamen. Verwende exakt den Begriff „ISAE 3402“; keine Zusätze.' },
       { role: 'user', content: prompt },
     ],
   } as const;
@@ -461,20 +508,14 @@ export default async function handler(req: any, res: any) {
         if (hit?.id) {
           orgId = hit.id;
           orgName = hit.name || formOrgName;
-          if (isNum(orgId)) {
-            await pdAttachDealToOrg(PD_API, dealId, orgId);
-          }
-
+          if (isNum(orgId)) { await pdAttachDealToOrg(PD_API, dealId, orgId); }
           console.log('attached deal to existing org by form name', { dealId, orgId, orgName });
         } else {
           const created = await pdCreateOrg(PD_API, formOrgName);
           if (created?.id) {
             orgId = created.id;
             orgName = created.name || formOrgName;
-            if (isNum(orgId)) {
-              await pdAttachDealToOrg(PD_API, dealId, orgId);
-            }
-
+            if (isNum(orgId)) { await pdAttachDealToOrg(PD_API, dealId, orgId); }
             console.log('created org from form name and attached', { dealId, orgId, orgName });
           }
         }
@@ -495,7 +536,7 @@ export default async function handler(req: any, res: any) {
             orgName = created.name || inferredName;
           }
         }
-        if (orgId) {
+        if (isNum(orgId)) {
           await pdAttachDealToOrg(PD_API, dealId, orgId);
           console.log('attached deal to org by inferred domain', { dealId, orgId, orgName });
         }
