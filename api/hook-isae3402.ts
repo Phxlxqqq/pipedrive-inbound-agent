@@ -54,7 +54,12 @@ export default async function handler(req: any, res: any) {
     }
 
     // Body parsen
+
+    
     const body = typeof req.body === "string" ? JSON.parse(req.body) : (req.body || {});
+    console.log("🔍 Incoming Webhook Payload:\n", JSON.stringify(body, null, 2));
+
+
     const meta = body?.meta || {};
     const curr: PDDeal = body?.current || {};
     const changes = meta?.changes || {};
