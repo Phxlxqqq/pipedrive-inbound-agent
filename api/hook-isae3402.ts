@@ -435,7 +435,7 @@ async function generateEmailIntroLLM(input: {
     temperature: 0,
     max_tokens: 350,
     messages: [
-      { role: 'system', content: 'Du schreibst knappe, personalisierte B2B-Erstansprachen (Deutsch). Keine Halluzinationen – erfinde KEINE Produkt- oder Zertifikatsnamen. Verwende exakt den Begriff „ISAE 3402“; keine Zusätze.' },
+      { role: 'system', content: 'Du schreibst knappe, personalisierte B2B-Erstansprachen (Deutsch). Keine Halluzinationen – erfinde KEINE Produkt- oder Zertifikatsnamen. Verwende exakt den Begriff "ISAE 3402-Bericht" oder "ISAE 3402"; keine Zusätze.' },
       { role: 'user', content: prompt },
     ],
   } as const;
