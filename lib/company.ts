@@ -27,23 +27,24 @@ export function inferOrgNameFromDomain(domain: string): string {
     .replace(/^www\./, '')
     .replace(/^mail\./, '')
     .split('.')
-    .slice(0, -1) // TLD droppen
+    .slice(0, -1) // TLD weg
     .join('-')
     .replace(/-/g, ' ')
     .trim();
+
   return core.split(' ')
     .map(w => w ? (w[0].toUpperCase() + w.slice(1)) : '')
     .join(' ') || domain;
 }
 
-/** MX-Check – in mancher Serverless-Umgebung evtl. eingeschränkt */
+/** MX-Check – in manchen Serverless-Umgebungen blockiert. */
 export async function hasMX(domain: string): Promise<boolean> {
   try {
     const dns = require('dns').promises;
     const mx = await dns.resolveMx(domain);
     return Array.isArray(mx) && mx.length > 0;
   } catch {
-    // wenn DNS blockiert ist, lieber großzügig sein:
+    // lieber großzügig: nicht fälschlich blocken
     return true;
   }
 }
