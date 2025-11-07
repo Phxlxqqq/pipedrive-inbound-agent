@@ -1,4 +1,5 @@
-// api/hook-isae3402.ts
+// /api/hook-isae3402.ts
+
 type PDDeal = {
   id: number;
   title?: string;
@@ -7,161 +8,173 @@ type PDDeal = {
   person_name?: string;
   organization_name?: string;
   org_name?: string;
-  [k: string]: any; // für Custom Fields
+  [k: string]: any; // erlaubt Zugriff auf Custom Fields (cf_…)
 };
 
-// Hilfsfunktion: API-URL mit Token korrekt bauen
+// ---- Auth-Helfer: Personal Token -> ?api_token=..., OAuth -> Bearer ----
 function withAuth(url: string) {
-  const apiToken = process.env.PD_API_TOKEN;
   const oauth = process.env.PD_OAUTH_TOKEN;
-  if (oauth) {
-    // OAuth: Header verwenden
-    return { url, headers: { Authorization: `Bearer ${oauth}` } };
-  }
-  // Personal API Token: als Query anhängen
+  if (oauth) return { url, headers: { Authorization: `Bearer ${oauth}` } };
   const sep = url.includes("?") ? "&" : "?";
-  return { url: `${url}${sep}api_token=${apiToken}`, headers: {} as Record<string, string> };
+  return { url: `${url}${sep}api_token=${process.env.PD_API_TOKEN}`, headers: {} as Record<string, string> };
 }
 
 export default async function handler(req: any, res: any) {
   try {
-    if (process.env.KILL_SWITCH === '1') return res.status(200).send('noop (kill switch)');
-    if (req.method !== 'POST') return res.status(405).send('Method not allowed');
+    // Notbremse
+    if (process.env.KILL_SWITCH === "1") return res.status(200).send("noop (kill switch)");
+    if (req.method !== "POST") return res.status(405).send("Method not allowed");
 
-    // Leichtgewichtige Absicherung über Secret in der URL
-    const secret = req.query?.secret;
-    if (!process.env.WEBHOOK_SECRET || secret !== process.env.WEBHOOK_SECRET) {
-      console.log('secret mismatch'); 
-      return res.status(401).send('Unauthorized');
+    // Leichtgewichtige Absicherung via URL-Secret
+    if (!process.env.WEBHOOK_SECRET || req.query?.secret !== process.env.WEBHOOK_SECRET) {
+      console.log("secret mismatch");
+      return res.status(401).send("Unauthorized");
     }
 
     // ENVs
-    const PD_API   = process.env.PD_API!;
+    const PD_API = process.env.PD_API || "https://api.pipedrive.com/v1";
     const PIPELINE_ID = Number(process.env.PIPELINE_ID);
-    const STAGE_ID    = Number(process.env.STAGE_ID);
-    const PRODUCT_TRIGGER = (process.env.PRODUCT_TRIGGER || '').toLowerCase(); // optional
+    const STAGE_ID = Number(process.env.STAGE_ID);
+    const PRODUCT_TRIGGER = (process.env.PRODUCT_TRIGGER || "ISAE 3402").toLowerCase();
 
-    const F_ENRICH = process.env.FIELD_ENRICHMENT_SUMMARY; // text/longtext
-    const F_INTRO  = process.env.FIELD_EMAIL_INTRO;        // text/longtext
-    const F_DONE   = process.env.FIELD_AI_ENRICHED;        // yes/no
+    const F_ENRICH = process.env.FIELD_ENRICHMENT_SUMMARY; // cf_xxx, Text/Longtext
+    const F_INTRO = process.env.FIELD_EMAIL_INTRO;         // cf_xxx, Text/Longtext
+    const F_DONE = process.env.FIELD_AI_ENRICHED;          // cf_xxx, Yes/No
 
-    if (!PD_API || (!process.env.PD_API_TOKEN && !process.env.PD_OAUTH_TOKEN) || !PIPELINE_ID || !STAGE_ID) {
-      console.error('Missing core envs', { PD_API: !!PD_API, token: !!(process.env.PD_API_TOKEN || process.env.PD_OAUTH_TOKEN), PIPELINE_ID, STAGE_ID });
-      return res.status(500).send('Missing environment variables');
+    const WHITEPAPER_URL = process.env.WHITEPAPER_URL || "";
+    const CALENDAR_URL = process.env.CALENDAR_URL || "";
+
+    if ((!process.env.PD_API_TOKEN && !process.env.PD_OAUTH_TOKEN) || !PIPELINE_ID || !STAGE_ID) {
+      console.error("Missing core envs", {
+        token: !!(process.env.PD_API_TOKEN || process.env.PD_OAUTH_TOKEN),
+        PIPELINE_ID,
+        STAGE_ID,
+      });
+      return res.status(500).send("Missing environment variables");
     }
 
-    const body  = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body || {});
-    const meta  = body?.meta || {};
+    // Body parsen
+    const body = typeof req.body === "string" ? JSON.parse(req.body) : (req.body || {});
+    const meta = body?.meta || {};
     const curr: PDDeal = body?.current || {};
     const changes = meta?.changes || {};
 
-    const action = String(meta?.action || '').toLowerCase(); // "updated" | "added" | ...
-    const object = String(meta?.object || '').toLowerCase(); // "deal"
+    // ---- Events normalisieren: create/change/delete => added/updated/deleted ----
+    const actionRaw = String(meta?.action || meta?.event_action || "").toLowerCase();
+    const objectRaw = String(meta?.object || meta?.event_object || meta?.model || "").toLowerCase();
 
-    if (object !== 'deal') {
-      console.log('ignored (not a deal)', { object, action });
-      return res.status(200).send('ignored');
+    const actionN =
+      actionRaw === "create" ? "added" :
+      actionRaw === "change" ? "updated" :
+      actionRaw === "delete" ? "deleted" : (actionRaw || String(meta?.action || "").toLowerCase());
+
+    const objectN = objectRaw || "deal"; // einige UIs liefern kein object; wir prüfen zusätzlich unten
+
+    if (objectN !== "deal") {
+      console.log("ignored (not deal)", { object: objectN, action: actionN });
+      return res.status(200).send("ignored");
     }
 
-    // 1) Auslösen beim Eintritt in die Ziel-Stage
-    const stageChangedToTarget =
-      !!changes?.stage_id?.new_value && Number(changes.stage_id.new_value) === STAGE_ID;
+    // ---- Stage-Filter: (A) neu in Stage angelegt  (B) per change in Stage verschoben ----
+    const inTargetOnAdd = actionN === "added" && Number(curr?.stage_id) === STAGE_ID;
+    const movedToTargetUpd = actionN === "updated" && Number(changes?.stage_id?.new_value) === STAGE_ID;
 
-    // 2) Optional: auch bei neu angelegtem Deal (wenn er direkt in dieser Stage landet)
-    const isAddedInTargetStage = action === 'added' && Number(curr?.stage_id) === STAGE_ID;
-
-    if (!(stageChangedToTarget || isAddedInTargetStage)) {
-      console.log('ignored (stage filter)', { action, stageChangedToTarget, isAddedInTargetStage });
-      return res.status(200).send('ignored');
+    if (!(inTargetOnAdd || movedToTargetUpd)) {
+      console.log("ignored (stage)", { actionN, currStage: curr?.stage_id, change: changes?.stage_id });
+      return res.status(200).send("ignored");
     }
 
     const dealId = Number(meta?.id || curr?.id);
     if (!dealId) {
-      console.log('ignored (no dealId)');
-      return res.status(200).send('ignored');
+      console.log("ignored (no deal id)");
+      return res.status(200).send("ignored");
     }
 
-    // Deal nachladen (für Pipeline-Check, Custom Fields, Person/Org etc.)
+    // ---- Deal laden (für Pipeline, Person/Org, Custom Fields) ----
     const getCfg = withAuth(`${PD_API}/deals/${dealId}`);
     const getResp = await fetch(getCfg.url, { headers: getCfg.headers });
     const getText = await getResp.text();
     if (!getResp.ok) {
-      console.error('GET deal failed', getResp.status, getText.slice(0, 200));
+      console.error("GET deal failed", getResp.status, getText.slice(0, 300));
       return res.status(502).send(`get deal failed ${getResp.status}`);
     }
-    const getJson = JSON.parse(getText || '{}');
+    const getJson = JSON.parse(getText || "{}");
     const data: PDDeal = getJson?.data || {};
 
-    // Pipeline filtern
+    // Pipeline-Check
     const pipelineMatch = Number(data?.pipeline_id || curr?.pipeline_id) === PIPELINE_ID;
     if (!pipelineMatch) {
-      console.log('ignored (pipeline mismatch)', { pipelineId: data?.pipeline_id, PIPELINE_ID });
-      return res.status(200).send('ignored');
+      console.log("ignored (pipeline mismatch)", { got: data?.pipeline_id || curr?.pipeline_id, need: PIPELINE_ID });
+      return res.status(200).send("ignored");
     }
 
-    // Optionaler Produkt-Trigger: im Titel
-    const title = String(data?.title || curr?.title || '').toLowerCase();
+    // Produkt/Titel-Trigger (optional)
+    const title = String(data?.title || curr?.title || "").toLowerCase();
     if (PRODUCT_TRIGGER && !title.includes(PRODUCT_TRIGGER)) {
-      console.log('ignored (product trigger)', { title, PRODUCT_TRIGGER });
-      return res.status(200).send('ignored');
+      console.log("ignored (product trigger)", { title, PRODUCT_TRIGGER });
+      return res.status(200).send("ignored");
     }
 
-    // Schon bearbeitet?
+    // Bereits angereichert?
     let already = false;
     if (F_DONE) {
-      const value = (data as any)[F_DONE];
-      // Ja/Nein-Felder sind oft "0"/"1" (string) oder boolean
-      already = value === 1 || value === '1' || value === true || value === 'true';
+      const v = (data as any)[F_DONE];
+      already = v === 1 || v === "1" || v === true || v === "true";
     }
     if (already) {
-      console.log('already enriched', { dealId });
-      return res.status(200).send('already enriched');
+      console.log("already enriched", { dealId });
+      return res.status(200).send("already enriched");
     }
 
-    // Platzhalter-Inhalte
-    const personName = data?.person_name || curr?.person_name || '';
-    const orgName    = data?.organization_name || data?.org_name || curr?.organization_name || curr?.org_name || '';
+    // ---- Inhalte generieren (Platzhalter) ----
+    const personName = data?.person_name || curr?.person_name || "";
+    const orgName = data?.organization_name || data?.org_name || curr?.organization_name || curr?.org_name || "";
 
     const enrichmentSummary =
       `Kurzresearch (Platzhalter):\n` +
-      `• Person: ${personName || 'n/a'}\n` +
-      `• Unternehmen: ${orgName || 'n/a'}\n` +
-      `• Produkt: ${PRODUCT_TRIGGER || 'n/a'}\n` +
+      `• Person: ${personName || "n/a"}\n` +
+      `• Unternehmen: ${orgName || "n/a"}\n` +
+      `• Produkt: ${PRODUCT_TRIGGER || "n/a"}\n` +
       `• Need/Anknüpfpunkte: (TODO)`;
 
+    const links =
+      [WHITEPAPER_URL ? `Whitepaper: ${WHITEPAPER_URL}` : "", CALENDAR_URL ? `Kalender: ${CALENDAR_URL}` : ""]
+        .filter(Boolean)
+        .join("\n");
+
     const emailIntro =
-      `Hallo ${personName || 'Team'},\n\n` +
-      `wir haben ${orgName || 'Ihr Unternehmen'} kurz angesehen. ` +
-      `Bei ${PRODUCT_TRIGGER || 'unserem Angebot'} geht es häufig um Audit-Vorbereitung, Kontrollnachweise und effiziente Umsetzung. ` +
-      `Anbei Whitepaper & Kalenderlink. Welche Zielsetzung verfolgen Sie konkret?\n\n` +
+      `Hallo ${personName || "Team"},\n\n` +
+      `wir haben ${orgName || "Ihr Unternehmen"} kurz angesehen. ` +
+      `Bei ${PRODUCT_TRIGGER || "unserem Angebot"} geht es häufig um Audit-Vorbereitung, Kontrollnachweise und effiziente Umsetzung.\n\n` +
+      (links ? `${links}\n\n` : "") +
+      `Welche Zielsetzung verfolgen Sie konkret?\n\n` +
       `Viele Grüße`;
 
+    // ---- Update vorbereiten ----
     const updateBody: Record<string, any> = {};
     if (F_ENRICH) updateBody[F_ENRICH] = enrichmentSummary;
     if (F_INTRO)  updateBody[F_INTRO]  = emailIntro;
-    if (F_DONE)   updateBody[F_DONE]   = 1; // als "1" / 1 setzen
+    if (F_DONE)   updateBody[F_DONE]   = 1;
 
     if (Object.keys(updateBody).length === 0) {
-      console.log('no custom fields configured — nothing to update, success', { dealId });
-      return res.status(200).send('ok (no fields configured)');
+      console.log("no custom fields configured — nothing to update, success", { dealId });
+      return res.status(200).send("ok (no fields configured)");
     }
 
+    // ---- Deal aktualisieren ----
     const putCfg = withAuth(`${PD_API}/deals/${dealId}`);
     const upd = await fetch(putCfg.url, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(putCfg.headers || {})
-      },
-      body: JSON.stringify(updateBody)
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...(putCfg.headers || {}) },
+      body: JSON.stringify(updateBody),
     });
     const updText = await upd.text();
-    console.log('Update deal ->', upd.status, updText.slice(0, 200));
+    console.log("Update deal ->", upd.status, updText.slice(0, 300));
     if (!upd.ok) return res.status(502).send(`Pipedrive update failed ${upd.status}`);
 
-    return res.status(200).send('ok');
+    return res.status(200).send("ok");
   } catch (e: any) {
-    console.error('Unhandled error:', e);
-    return res.status(500).send(e?.message || 'error');
+    console.error("Unhandled error:", e);
+    return res.status(500).send(e?.message || "error");
   }
 }
