@@ -1,7 +1,8 @@
 // /api/hook-isae3402.ts
 // ENVs (Vercel): PD_API, PD_API_TOKEN|PD_OAUTH_TOKEN, PIPELINE_ID, STAGE_ID, WEBHOOK_SECRET,
 // FIELD_ENRICHMENT_SUMMARY, FIELD_EMAIL_INTRO, FIELD_AI_ENRICHED, FIELD_SPAM (optional),
-// OPENAI_API_KEY, LLM_MODEL (optional), WHITEPAPER_URL, CALENDAR_URL, PRODUCT_TRIGGER
+// OPENAI_API_KEY, LLM_MODEL (optional), WHITEPAPER_URL, CALENDAR_URL, PRODUCT_TRIGGER,
+// WHITEPAPER_LABEL (optional), CALENDAR_LABEL (optional)
 
 import { domainFromEmail, isFreemailOrDisposable, inferOrgNameFromDomain, hasMX } from '../lib/company';
 import { withAuth, pdSearchOrg, pdCreateOrg, pdAttachDealToOrg } from '../lib/pd';
@@ -67,7 +68,7 @@ async function gatherCompanySignals(domain: string) {
   return { snippet, signals };
 }
 
-// --- Link Labels & Builder ---
+// --- Link Labels & Builder (HTML anchors, keine Klammern) ---
 const WP_LABEL_DEFAULT  = 'Whitepaper ISAE 3402';
 const CAL_LABEL_DEFAULT = '20-Min-Termin buchen';
 
@@ -77,8 +78,7 @@ function buildHtmlLinks(opts: { whitepaper?: string; calendar?: string; wpLabel?
   return { wpHtml: wp, calHtml: cal };
 }
 
-
-// --- LLM email intro ---
+// --- LLM email intro (ohne []-Klammern; ersetzt via Tokens) ---
 async function generateEmailIntroLLM(input: {
   personName?: string; orgName?: string; product: string;
   signalList?: string; siteSnippet?: string;
@@ -90,20 +90,19 @@ async function generateEmailIntroLLM(input: {
 
   const prompt = [
     `Schreibe eine kurze, präzise B2B-Erstansprache (Deutsch).`,
-    `70–95 Wörter. Keine Superlative, kein Marketing-Sprech, keine Bulletpoints, keine Emojis, nicht Salesly, sehr persönlich`,
+    `70–95 Wörter. Keine Superlative, kein Marketing-Sprech, keine Bulletpoints, keine Emojis.`,
     `Aufgabe: Erkläre knapp, WARUM ${input.orgName || 'das Unternehmen'} ${input.product} benötigen könnte.`,
     `Nutze nur Hinweise aus "Signale" und "Auszug". Wenn unklar, vorsichtig formulieren (z. B. "häufig relevant, wenn …").`,
     `Person: ${input.personName || 'Team'}`,
     `Unternehmen: ${input.orgName || 'Unbekannt'}`,
     input.signalList ? `Signale: ${input.signalList}` : '',
     input.siteSnippet ? `Auszug: ${input.siteSnippet}` : '',
-    `Struktur: 1) Relevanz 2) konkreter Nutzen 3) Beispiel (z. B. Change-/Access-/Operations-Kontrollen) 4) zwei Abschlusssätze.`,
+    `Struktur: 1) Relevanz 2) konkreter Nutzen ${input.product} 3) Beispiel (z. B. Change-/Access-/Operations-Kontrollen) 4) zwei Abschlusssätze.`,
     `Ganz am Ende bitte zwei Klartext-Platzhalter hintereinander (keine Klammern):`,
     `WHITEPAPER_LINK und KALENDER_LINK`,
-    `Beispiel: "Weitere Details im Whitepaper: WHITEPAPER_LINK. Alternativ können Sie sich direkt hier einen Termin buchen: KALENDER_LINK."`,
+    `Beispiel: "Weitere Details im Whitepaper: WHITEPAPER_LINK. Alternativ direkt sprechen: KALENDER_LINK."`,
     `Ausgabe nur als BODY-Text (ohne SUBJECT), 3–5 Sätze, kein Grußnamen-Platzhalter.`
   ].filter(Boolean).join('\n');
-
 
   const body = {
     model,
@@ -122,13 +121,8 @@ async function generateEmailIntroLLM(input: {
   });
   const json = await resp.json();
   const text = json?.choices?.[0]?.message?.content || '';
-  const bodyText = (text.split(/BODY:\s*/i)[1] || text).trim();
-
-  const withLinks = bodyText
-    .replace('[WHITEPAPER]', input.whitepaper || '')
-    .replace('[CALENDAR]', input.calendar || '');
-
-  return { body: withLinks };
+  const bodyText = text.trim();
+  return { body: bodyText };
 }
 
 export default async function handler(req: any, res: any) {
@@ -152,6 +146,8 @@ export default async function handler(req: any, res: any) {
     const F_SPAM          = process.env.FIELD_SPAM; // optional Yes/No
     const WHITEPAPER_URL  = process.env.WHITEPAPER_URL || '';
     const CALENDAR_URL    = process.env.CALENDAR_URL || '';
+    const WHITEPAPER_LABEL = process.env.WHITEPAPER_LABEL || WP_LABEL_DEFAULT;
+    const CALENDAR_LABEL   = process.env.CALENDAR_LABEL  || CAL_LABEL_DEFAULT;
 
     if ((!process.env.PD_API_TOKEN && !process.env.PD_OAUTH_TOKEN) || !PIPELINE_ID || !STAGE_ID) {
       return res.status(500).send('Missing environment variables');
@@ -238,24 +234,24 @@ export default async function handler(req: any, res: any) {
 
     // Spam: Freemail/Disposable
     if (emailDomain && isFreemailOrDisposable(emailDomain)) {
-      if (process.env.FIELD_SPAM) {
+      if (F_SPAM) {
         const putSpam = withAuth(`${PD_API}/deals/${dealId}`);
         await fetch(putSpam.url, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json', ...(putSpam.headers || {}) },
-          body: JSON.stringify({ [process.env.FIELD_SPAM]: 1 })
+          body: JSON.stringify({ [F_SPAM]: 1 })
         });
       }
       return res.status(200).send('ok (spam/freemail)');
     }
     // Optional streng: MX
     if (emailDomain && !(await hasMX(emailDomain))) {
-      if (process.env.FIELD_SPAM) {
+      if (F_SPAM) {
         const putSpam = withAuth(`${PD_API}/deals/${dealId}`);
         await fetch(putSpam.url, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json', ...(putSpam.headers || {}) },
-          body: JSON.stringify({ [process.env.FIELD_SPAM]: 1 })
+          body: JSON.stringify({ [F_SPAM]: 1 })
         });
       }
       return res.status(200).send('ok (no_mx)');
@@ -280,9 +276,9 @@ export default async function handler(req: any, res: any) {
     }
 
     // ---- Schon angereichert? (Einmal-Flag) ----
-    const F_DONE_KEY = process.env.FIELD_AI_ENRICHED;
-    const F_DONE_VAL = F_DONE_KEY ? ((data as any)[F_DONE_KEY] ?? data?.custom_fields?.[F_DONE_KEY as any]) : undefined;
-    const already = F_DONE_KEY && (F_DONE_VAL === 1 || F_DONE_VAL === '1' || F_DONE_VAL === true || F_DONE_VAL === 'true');
+    const F_DONE_VAL = F_DONE ? ((data as any)[F_DONE] ?? data?.custom_fields?.[F_DONE as any]) : undefined;
+    const already =
+      F_DONE && (F_DONE_VAL === 1 || F_DONE_VAL === '1' || F_DONE_VAL === true || F_DONE_VAL === 'true');
     if (already) return res.status(200).send('already enriched');
 
     // ===== Website-Signale & LLM =====
@@ -297,23 +293,46 @@ export default async function handler(req: any, res: any) {
     const personName  = data?.person_name || curr?.person_name || '';
     const productName = 'ISAE 3402'; // kanonisiert
 
-    // LLM Mail erzeugen
-    let emailIntro = '';
-    try {
-      const llm = await generateEmailIntroLLM({
-        personName, orgName, product: productName,
-        signalList: signals.join(', '), siteSnippet: snippet,
-        whitepaper: WHITEPAPER_URL, calendar: CALENDAR_URL
-      });
-      emailIntro = llm?.body || '';
-    } catch {
-      emailIntro =
-        `Hallo ${personName || 'Team'},\n\n` +
-        `wir haben ${orgName || 'Ihr Unternehmen'} kurz angesehen. ` +
-        `Bei ${productName} geht es häufig um Audit-Vorbereitung, Kontrollnachweise und effiziente Umsetzung.\n\n` +
-        (WHITEPAPER_URL ? `Whitepaper: ${WHITEPAPER_URL}\n` : '') +
-        (CALENDAR_URL ? `Kalender: ${CALENDAR_URL}\n` : '') +
-        `Welche Zielsetzung verfolgen Sie konkret?\n\nViele Grüße`;
+    // LLM Mail erzeugen (ohne []-Klammern; Tokens WHITEPAPER_LINK/KALENDER_LINK)
+    const llm = await generateEmailIntroLLM({
+      personName, orgName, product: productName,
+      signalList: signals.join(', '), siteSnippet: snippet,
+      whitepaper: WHITEPAPER_URL, calendar: CALENDAR_URL
+    });
+    let emailIntro = (llm?.body || '').trim();
+
+    // 1) Eventuelle eckige Klammern entfernen (Safety)
+    emailIntro = emailIntro.replace(/\[([^\]]+)\]/g, '$1');
+
+    // 2) HTML-Links einbetten
+    const { wpHtml, calHtml } = buildHtmlLinks({
+      whitepaper: WHITEPAPER_URL,
+      calendar: CALENDAR_URL,
+      wpLabel: WHITEPAPER_LABEL,
+      calLabel: CALENDAR_LABEL
+    });
+
+    // 3) Tokens ersetzen oder anhängen
+    if (wpHtml) {
+      if (emailIntro.includes('WHITEPAPER_LINK')) {
+        emailIntro = emailIntro.replace(/WHITEPAPER_LINK/g, wpHtml);
+      } else {
+        emailIntro += (emailIntro.endsWith('.') ? '' : '.') + ` Weitere Details im ${WHITEPAPER_LABEL}: ${wpHtml}.`;
+      }
+    }
+    if (calHtml) {
+      if (emailIntro.includes('KALENDER_LINK')) {
+        emailIntro = emailIntro.replace(/KALENDER_LINK/g, calHtml);
+      } else {
+        emailIntro += ` Alternativ direkt sprechen: ${calHtml}.`;
+      }
+    }
+
+    // 4) Begrüßung + Sign-off ergänzen, falls nicht vorhanden (du sendest über Pipedrive-Template inkl. Signatur)
+    if (!/^hallo/i.test(emailIntro)) {
+      const greeting = `Hallo ${personName || 'Team'},\n\n`;
+      const signoff  = `\n\nViele Grüße`;
+      emailIntro = greeting + emailIntro + signoff;
     }
 
     const enrichmentSummary =
@@ -340,7 +359,7 @@ export default async function handler(req: any, res: any) {
     const updateBody: Record<string, any> = {};
     if (F_ENRICH && summaryChanged) updateBody[F_ENRICH] = enrichmentSummary;
     if (F_INTRO  && introChanged)   updateBody[F_INTRO]  = emailIntro;
-    if (F_DONE_KEY)                 updateBody[F_DONE_KEY] = 1;
+    if (F_DONE)                     updateBody[F_DONE]   = 1;
 
     if (Object.keys(updateBody).length === 0) return res.status(200).send('ok (no fields configured)');
 
