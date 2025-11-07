@@ -265,13 +265,28 @@ export default async function handler(req: any, res: any) {
       `• Produkt: ${productName}\n` +
       `• Ansatzpunkte: (TODO)`;
 
-    // Update-Body vorbereiten
-    const updateBody: Record<string, any> = {};
-    if (F_ENRICH) updateBody[F_ENRICH] = enrichmentSummary;
-    if (F_INTRO)  updateBody[F_INTRO]  = emailIntro;
-    if (F_DONE)   updateBody[F_DONE]   = 1;
+    // Doppel-Update vermeiden: nur schreiben, wenn neu
+    const existingIntro = F_INTRO ? (data as any)[F_INTRO] : undefined;
+    const existingSummary = F_ENRICH ? (data as any)[F_ENRICH] : undefined;
 
-    if (Object.keys(updateBody).length === 0) return res.status(200).send('ok (no fields configured)');
+    const introChanged   = !existingIntro   || String(existingIntro).trim()   !== String(emailIntro).trim();
+    const summaryChanged = !existingSummary || String(existingSummary).trim() !== String(enrichmentSummary).trim();
+
+    if (!introChanged && !summaryChanged) {
+      return res.status(200).send('ok (no change)');
+    }
+
+    
+      // Update-Body vorbereiten
+    const updateBody: Record<string, any> = {};
+    if (F_ENRICH && summaryChanged) updateBody[F_ENRICH] = enrichmentSummary;
+    if (F_INTRO  && introChanged)   updateBody[F_INTRO]  = emailIntro;
+    if (F_DONE)                     updateBody[F_DONE]   = 1;
+
+    if (Object.keys(updateBody).length === 0) {
+      return res.status(200).send('ok (no fields configured)');
+    }
+
 
     const putCfg = withAuth(`${PD_API}/deals/${dealId}`);
     const upd = await fetch(putCfg.url, {
