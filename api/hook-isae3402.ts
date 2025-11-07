@@ -1,5 +1,5 @@
 // api/hook-isae3402.ts
-// Vollversion – robust, idempotent, Node.js Runtime (mit Branchen-Klassifikation, dynamischem Prompt & Anti-Halluzination)
+// Vollversion – robust, idempotent, Node.js Runtime (mit Branchen-Klassifikation, Rollen-Framing, dynamischem Prompt & Anti-Halluzination)
 // ENVs (Vercel/Next.js):
 // Pflicht: PD_API, PD_API_TOKEN|PD_OAUTH_TOKEN, PIPELINE_ID, STAGE_ID, WEBHOOK_SECRET, OPENAI_API_KEY
 // Custom Fields (interne Keys cf_…): FIELD_ENRICHMENT_SUMMARY, FIELD_EMAIL_INTRO, FIELD_AI_ENRICHED, optional FIELD_SPAM
@@ -27,6 +27,24 @@ type PDDeal = {
   custom_fields?: Record<string, any>;
   [k: string]: any;
 };
+
+function normalizeTitle(title?: string): string {
+  return (title || '').toLowerCase();
+}
+function roleFrameFromTitle(title?: string): { role: string; frame: string } {
+  const t = normalizeTitle(title);
+  if (/cto|head of engineering|vp engineering|devops|platform|sre|architect/.test(t))
+    return { role: 'Tech', frame: 'Fokus: Changes/Deployments, Zugriffsmodelle (RBAC), Betriebsprozesse/Runbooks, evidenzfähige Kontrollen.' };
+  if (/ciso|security|infosec|it(-| )?security|data protection/.test(t))
+    return { role: 'Security', frame: 'Fokus: prüfbare Kontrollen, SOC/ISO-Bezug, Risiko-Einordnung, Vendor Due Diligence.' };
+  if (/compliance|risk|governance|internal controls|ics/.test(t))
+    return { role: 'Compliance', frame: 'Fokus: Kontroll-Design/-Wirksamkeit, Prüfpfade, Nachweisführung in Audits & Assessments.' };
+  if (/procurement|einkauf|vendor|supplier|sourcing/.test(t))
+    return { role: 'Procurement', frame: 'Fokus: Vendor-Onboarding, Standardnachweise, weniger Rückfragen/Schleifen in Ausschreibungen.' };
+  if (/finance|cfo|controller|audit|revision|ban(k|c)/.test(t))
+    return { role: 'Finance', frame: 'Fokus: verlässliche Prozessreife, reduzierte Prüfaufwände und klare Kontrollnachweise.' };
+  return { role: 'General', frame: 'Fokus: externe Testate für Änderungen, Zugriffe und Betrieb; schnellere Freigaben, weniger Rückfragen.' };
+}
 
 function isNum(n: any): n is number {
   return typeof n === 'number' && Number.isFinite(n);
@@ -175,10 +193,92 @@ async function fetchText(url: string) {
       .slice(0, 4000);
   } catch { return ''; }
 }
+
+// --- HTML-Helpers -------------------------------------------------
+function extractMeta(html: string, nameOrProp: string): string {
+  const re = new RegExp(`<meta[^>]+(?:name|property)=["']${nameOrProp}["'][^>]*?content=["']([^"']+)["'][^>]*>`, 'i');
+  const m = html.match(re);
+  return m?.[1]?.trim() || '';
+}
+function extractJSONLD(html: string): any[] {
+  const blocks = [...html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)];
+  const out: any[] = [];
+  for (const b of blocks) {
+    try {
+      const json = JSON.parse(b[1]);
+      if (Array.isArray(json)) out.push(...json);
+      else out.push(json);
+    } catch { /* ignore */ }
+  }
+  return out;
+}
+
+// --- Erweiterte Enrichment-Funktion -------------------------------
+async function enrichCompanyProfile(domain: string) {
+  const base0 = domain.startsWith('http') ? domain : `https://${domain}`;
+  const bases = [base0.replace(/\/$/, ''), base0.replace(/\/$/, '').replace(/^https:\/\//,'https://www.')];
+  const paths = [
+    '', '/about', '/en/about', '/company', '/impressum', '/imprint',
+    '/security', '/trust', '/compliance', '/legal', '/privacy', '/gdpr',
+    '/products', '/platform', '/solutions', '/soc', '/audit'
+  ];
+
+  let bestHtml = '';
+  for (const b of bases) {
+    const parts = await Promise.all(paths.map(p => fetchWithTimeout(b + p, { headers: { 'User-Agent': 'Mozilla/5.0' } }).then(r => r.ok ? r.text() : '').catch(()=>'') ));
+    const joined = parts.filter(Boolean).join('\n');
+    if (joined.length > bestHtml.length) bestHtml = joined;
+  }
+  const text = bestHtml
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  // Meta / OG
+  const ogTitle = extractMeta(bestHtml, 'og:title') || extractMeta(bestHtml, 'twitter:title');
+  const ogDesc  = extractMeta(bestHtml, 'og:description') || extractMeta(bestHtml, 'twitter:description') || extractMeta(bestHtml, 'description');
+
+  // JSON-LD
+  const jsonld  = extractJSONLD(bestHtml);
+  const orgNode = jsonld.find(n => (n['@type'] === 'Organization' || (Array.isArray(n['@type']) && n['@type'].includes('Organization')))) || {};
+  const swApp   = jsonld.find(n => (n['@type'] === 'SoftwareApplication')) || {};
+  const nameLD  = orgNode?.name || swApp?.name || '';
+  const descLD  = orgNode?.description || swApp?.description || '';
+
+  // Keyword-Heuristiken
+  const lower = text.toLowerCase();
+  const has = (k: string | RegExp) => (typeof k === 'string' ? lower.includes(k) : k.test(lower));
+  const kw = new Set<string>();
+  [
+    'saas','api','multi-tenant','marketplace','merchant','feed','product data','shopify','magento','bigcommerce',
+    'e-commerce','checkout','psp','pricing','repricing','catalog','integration','etl','mdm','pim','gdpr','iso 27001','soc 2'
+  ].forEach(k => { if (has(k)) kw.add(k); });
+
+  // kompakte Company-Highlights (max 300–400 Zeichen)
+  const highlights = [
+    ogTitle, nameLD
+  ].filter(Boolean).slice(0,1).join(' | ');
+  const blurb = [ ogDesc, descLD ].filter(Boolean).join(' ').slice(0, 320);
+
+  return {
+    highlights,         // z.B. "Channel Pilot Solutions – Product Data Platform"
+    blurb,              // Kurzbeschreibung aus Meta/LD
+    keywords: Array.from(kw), // ['saas','marketplace','api',...]
+    rawText: text.slice(0, 1200) // für dein existing siteSnippet
+  };
+}
+
 async function gatherCompanySignals(domain: string) {
   const raw = domain.startsWith('http') ? domain : `https://${domain}`;
   const baseCandidates = [raw.replace(/\/$/, ''), raw.replace(/\/$/, '').replace(/^https:\/\//, 'https://www.')];
-  const paths = ['', '/about', '/security', '/compliance', '/legal', '/gdpr', '/trust', '/soc', '/audit'];
+  const paths = [
+  '', '/about', '/en/about', '/company', '/imprint', '/impressum',
+  '/security', '/trust', '/compliance', '/legal', '/gdpr', '/privacy',
+  '/soc', '/audit'
+  ];
+
   let joined = '';
   for (const base of baseCandidates) {
     const texts = await Promise.all(paths.map((p) => fetchText(base + p)));
@@ -268,54 +368,63 @@ function buildLinks(opts: { whitepaper?: string; calendar?: string; wpLabel?: st
 }
 
 // -----------------------------------------------------------
+// Post-Processing Guards (Anti-Halluzination & Länge)
+// -----------------------------------------------------------
+function hardGuards(body: string) {
+  // Verhindere Fantasie-Zusätze bei ISAE 3402
+  body = body.replace(/\bisae\s*3402\b\s*(lead|pack|suite|iap|plus|pro)?/gi, 'ISAE 3402');
+  // eckige Klammern entfernen
+  body = body.replace(/\[([^\]]+)\]/g, '$1');
+  // grobes Längenlimit
+  const words = body.split(/\s+/);
+  if (words.length > 110) body = words.slice(0, 110).join(' ');
+  return body.trim();
+}
+
+// -----------------------------------------------------------
 // LLM: personalisierte Mail (Tokens WHITEPAPER_LINK / KALENDER_LINK)
 // -----------------------------------------------------------
 async function generateEmailIntroLLM(input: {
   personName?: string; orgName?: string; product: string;
   signalList?: string; siteSnippet?: string;
   whitepaper?: string; calendar?: string;
+  companyHighlights?: string; roleFrame?: string;
 }) {
   const apiKey = process.env.OPENAI_API_KEY;
   const model = process.env.LLM_MODEL || 'gpt-4o-mini';
   if (!apiKey) throw new Error('OPENAI_API_KEY missing');
 
-  const signals = (input.signalList || '').split(',').map((s) => s.trim()).filter(Boolean);
+  const signals = (input.signalList || '').split(',').map(s => s.trim()).filter(Boolean);
   const industryFrame = buildIndustryFrame(input.orgName, input.siteSnippet, signals);
 
   const prompt = [
-    // Ziel & Ton
     'Schreibe eine kurze, präzise B2B-Erstansprache auf Deutsch.',
     '70–95 Wörter. 3–5 Sätze. Kein Betreff. Kein Gruß. Keine Emojis. Keine Bulletpoints.',
     'Ton: sachlich, respektvoll, lösungsorientiert. Keine Superlative. Kein Marketing-Sprech.',
 
-    // Kontext
     `Adressat (optional): ${input.personName || 'Team'}`,
     `Unternehmen: ${input.orgName || 'Unbekannt'}`,
-    signals.length ? `Signale (nur verwenden, wenn wirklich passend): ${signals.join(', ')}` : '',
-    input.siteSnippet ? `Auszug (nur vorsichtig paraphrasieren, nichts frei erfinden): ${input.siteSnippet}` : '',
-
-    // Dynamisches Branchen-Framing
+    signals.length ? `Signale (nur verwenden, wenn passend): ${signals.join(', ')}` : '',
+    input.siteSnippet ? `Auszug/Website (nur vorsichtig paraphrasieren): ${input.siteSnippet}` : '',
+    input.companyHighlights ? `Company-Highlights: ${input.companyHighlights}` : '',
     industryFrame,
+    input.roleFrame ? `Rollen-Frame: ${input.roleFrame}` : '',
 
-    // Aufgabe
-    `Aufgabe: Erkläre knapp, WARUM ${input.orgName || 'das Unternehmen'} ${input.product} benötigt – mit Bezug auf typische Nachweise/Anforderungen in dieser Branche.`,
+    `Aufgabe: Erkläre knapp, WARUM ${input.orgName || 'das Unternehmen'} ${input.product} benötigt – mit Bezug auf typische Nachweise/Anforderungen in dieser Branche und (falls sinnvoll) die Rolle der Ansprechperson.`,
 
-    // Struktur (eng geführt)
     'Struktur:',
-    '1) Einstieg mit kurzem, plausiblen Anwendungskontext (aus Signalen/Auszug; wenn unklar, neutral).',
-    `2) Konkreter Nutzen von ${input.product} (z. B. weniger Rückfragen in Prüf-/Beschaffungsprozessen, prüfbare Kontrollen, schnelleres Onboarding).`,
-    '3) Ein Beispiel-Kontext – z. B. Änderungen an Systemen, Zugriffe auf Daten, Betriebs-/Übergabeprozesse.',
+    '1) Einstieg mit kurzem, plausiblen Anwendungskontext (aus Signals/Website; wenn unklar, neutral).',
+    `2) Konkreter Nutzen von ${input.product} (z. B. weniger Rückfragen in Assessments, prüfbare Kontrollen, schnelleres Onboarding).`,
+    '3) Beispiel-Kontext – z. B. Änderungen an Systemen, Zugriffe auf Daten, Betriebs-/Übergabeprozesse.',
     '4) Abschluss: zwei knappe Sätze; dann zwei separate Call-to-Action-Zeilen (siehe unten).',
 
-    // Harte Verbotsregeln / Anti-Halluzination
-    'Es dürfen KEINE neuen Produkt- oder Zertifikatsbezeichnungen erfunden werden.',
+    // Harte Verbote
+    'Es dürfen KEINE neuen Produkt-/Zertifikatsbezeichnungen erfunden werden.',
     'Der einzige zulässige Produktname ist exakt: "ISAE 3402". Keine Zusätze wie "Lead", "Pack", "Suite", "iAP" etc.',
     'Wenn unklar: neutral formulieren ("ISAE 3402 Bericht" / "ISAE 3402 Nachweis").',
     'Verbote: keine Floskeln wie „branchenführend“, „maßgeschneidert“, „innovativ“.',
-    'Keine Behauptungen ohne Basis. Wenn unklar: Formulierungen wie „häufig gefordert“, „typisch in Ausschreibungen“.',
-    'Kein Platzhalter-Gruß (die Einleitung übernimmt ein anderes System).',
+    'Keine Behauptungen ohne Basis; im Zweifel: „häufig gefordert“, „typisch in Ausschreibungen“.',
 
-    // Formatvorgabe für CTAs (zwingend)
     'Am Ende des Textes GENAU diese zwei Zeilen, jeweils alleinstehend:',
     'Weitere Details im Whitepaper: WHITEPAPER_LINK.',
     'Wenn Sie das Thema kurz einordnen möchten: KALENDER_LINK.'
@@ -446,6 +555,7 @@ export default async function handler(req: any, res: any) {
 
     // 2) Person/E-Mail → Domain (für Spam-Check & Fallback)
     let emailDomain: string | null = null;
+    let personTitle = '';
     if (data.person_id) {
       const pid = typeof data.person_id === 'object' ? (data.person_id as any).value || 0 : Number(data.person_id);
       if (pid) {
@@ -460,6 +570,7 @@ export default async function handler(req: any, res: any) {
             const pidOrgId = asNumber(p.org_id);
             if (pidOrgId) orgId = pidOrgId;
           }
+          personTitle = p.title || p.label || '';
         }
       }
     }
@@ -555,14 +666,25 @@ export default async function handler(req: any, res: any) {
     // -----------------------------------------------------------
     let snippet = '';
     let signals: string[] = [];
+    let company: any = {};
     if (emailDomain) {
       const gathered = await gatherCompanySignals(emailDomain);
       snippet = gathered.snippet;
       signals = gathered.signals;
+
+      company = await enrichCompanyProfile(emailDomain);
+      if (company?.rawText && company.rawText.length > snippet.length) {
+        snippet = company.rawText; // nimm das bessere Material
+      }
     }
 
     const personName = data?.person_name || curr?.person_name || '';
     const productName = PRODUCT_TRIGGER || 'ISAE 3402';
+    const { role, frame: roleFrame } = roleFrameFromTitle(personTitle);
+    const companyHighlights = [
+      company?.highlights,
+      company?.blurb
+    ].filter(Boolean).join(' – ').slice(0, 400);
 
     let emailIntro: string;
     try {
@@ -570,12 +692,17 @@ export default async function handler(req: any, res: any) {
         personName, orgName, product: productName,
         signalList: signals.join(', '), siteSnippet: snippet,
         whitepaper: WHITEPAPER_URL, calendar: CALENDAR_URL,
+        companyHighlights,
+        roleFrame
       });
       emailIntro = (llm?.body || '').trim();
     } catch (e: any) {
       console.warn('LLM failed, using fallback text:', e?.message);
       emailIntro = `Wir sehen bei ähnlichen Unternehmen häufig Bedarf an ${productName} – insbesondere rund um klar definierte Kontrollen und Prüfpfade. Gern teilen wir Details und Beispiele. WHITEPAPER_LINK Alternativ direkt sprechen: KALENDER_LINK.`;
     }
+
+    // Anti-Halluzination & Längenbegrenzung
+    emailIntro = hardGuards(emailIntro);
 
     // Tokens ersetzen & Format (HTML vs. Plain-Text)
     const { wpHtml, calHtml, wpText, calText } = buildLinks({
@@ -624,6 +751,7 @@ export default async function handler(req: any, res: any) {
       (signals.length ? `• Signale: ${signals.join(', ')}\n` : '') +
       (snippet ? `• Auszug: ${snippet.slice(0, 220)}…\n` : '') +
       `• Produkt: ${productName}\n` +
+      `• Rolle: ${role}\n` +
       `• Ansatzpunkte: (TODO)`;
 
     // Nur schreiben, wenn wirklich neu
