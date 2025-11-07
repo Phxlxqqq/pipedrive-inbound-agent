@@ -263,6 +263,10 @@ async function generateEmailIntroLLM(input: {
     "Verbote: keine Floskeln wie „Kundenbeziehungen stärken“, „branchenführend“, „maßgeschneidert“, „innovativ“.",
     "Keine Behauptungen ohne Basis. Wenn unklar: Formulierungen wie „häufig gefordert“, „typisch in Ausschreibungen“.",
     "Kein Platzhalter-Gruß (die Einleitung übernimmt ein anderes System).",
+    "Es dürfen KEINE neuen Produkt- oder Zertifikatsbezeichnungen erfunden werden.",
+    "Der einzige zulässige Produktname ist exakt: \"ISAE 3402\". Keine Zusätze wie \"Pack\", \"Lead\", \"Suite\", \"iAP\" usw.",
+    "Falls unklar, neutral formulieren („ISAE 3402 Bericht“, „ISAE 3402 Nachweis“).",
+
 
     // Formatvorgaben für CTAs (zwingend)
     "Am Ende des Textes GENAU diese zwei Zeilen, jeweils alleinstehend:",
