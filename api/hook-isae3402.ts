@@ -1,4 +1,11 @@
 // /api/hook-isae3402.ts
+// Voraussetzungen:
+// - /lib/company.ts mit domainFromEmail, isFreemailOrDisposable, inferOrgNameFromDomain, hasMX
+// - /lib/pd.ts mit withAuth, pdSearchOrg, pdCreateOrg, pdAttachDealToOrg
+// ENVs (Vercel): PD_API, PD_API_TOKEN|PD_OAUTH_TOKEN, PIPELINE_ID, STAGE_ID, WEBHOOK_SECRET,
+//                FIELD_ENRICHMENT_SUMMARY, FIELD_EMAIL_INTRO, FIELD_AI_ENRICHED, FIELD_SPAM (optional)
+//                OPENAI_API_KEY, LLM_MODEL (optional), WHITEPAPER_URL, CALENDAR_URL, PRODUCT_TRIGGER
+
 import { domainFromEmail, isFreemailOrDisposable, inferOrgNameFromDomain, hasMX } from '../lib/company';
 import { withAuth, pdSearchOrg, pdCreateOrg, pdAttachDealToOrg } from '../lib/pd';
 
@@ -12,6 +19,7 @@ type PDDeal = {
   organization_name?: string;
   org_name?: string;
   org_id?: number;
+  custom_fields?: Record<string, any>;
   [k: string]: any;
 };
 
@@ -59,7 +67,7 @@ async function generateEmailIntroLLM(input: {
 
   const body = {
     model,
-    temperature: 0.2,
+    temperature: 0, // deterministisch, verhindert minimale Abweichungen
     max_tokens: 350,
     messages: [
       { role: 'system', content: 'Du schreibst knappe, personalisierte B2B-Erstansprachen (Deutsch). Keine Halluzinationen – bleib neutral, wenn Infos fehlen.' },
@@ -89,22 +97,22 @@ export default async function handler(req: any, res: any) {
     if (process.env.KILL_SWITCH === '1') return res.status(200).send('noop (kill switch)');
     if (req.method !== 'POST') return res.status(405).send('Method not allowed');
 
-    // Secret prüfen
+    // URL-Secret
     if (!process.env.WEBHOOK_SECRET || req.query?.secret !== process.env.WEBHOOK_SECRET) {
       return res.status(401).send('Unauthorized');
     }
 
     // ENVs
-    const PD_API       = process.env.PD_API || 'https://api.pipedrive.com/v1';
-    const PIPELINE_ID  = Number(process.env.PIPELINE_ID);
-    const STAGE_ID     = Number(process.env.STAGE_ID);
+    const PD_API          = process.env.PD_API || 'https://api.pipedrive.com/v1';
+    const PIPELINE_ID     = Number(process.env.PIPELINE_ID);
+    const STAGE_ID        = Number(process.env.STAGE_ID);
     const PRODUCT_TRIGGER = (process.env.PRODUCT_TRIGGER || 'ISAE 3402').toLowerCase();
-    const F_ENRICH = process.env.FIELD_ENRICHMENT_SUMMARY;
-    const F_INTRO  = process.env.FIELD_EMAIL_INTRO;
-    const F_DONE   = process.env.FIELD_AI_ENRICHED;
-    const F_SPAM   = process.env.FIELD_SPAM; // optional Yes/No
-    const WHITEPAPER_URL = process.env.WHITEPAPER_URL || '';
-    const CALENDAR_URL   = process.env.CALENDAR_URL || '';
+    const F_ENRICH        = process.env.FIELD_ENRICHMENT_SUMMARY;
+    const F_INTRO         = process.env.FIELD_EMAIL_INTRO;
+    const F_DONE          = process.env.FIELD_AI_ENRICHED;
+    const F_SPAM          = process.env.FIELD_SPAM; // optional Yes/No
+    const WHITEPAPER_URL  = process.env.WHITEPAPER_URL || '';
+    const CALENDAR_URL    = process.env.CALENDAR_URL || '';
 
     if ((!process.env.PD_API_TOKEN && !process.env.PD_OAUTH_TOKEN) || !PIPELINE_ID || !STAGE_ID) {
       return res.status(500).send('Missing environment variables');
@@ -116,6 +124,7 @@ export default async function handler(req: any, res: any) {
     const isV2 = !!body?.data && (meta?.version?.startsWith?.('2') || typeof meta?.entity === 'string');
 
     const curr: PDDeal = (isV2 ? body?.data : body?.current) || {};
+    const previous: any = isV2 ? (body?.previous || {}) : (body?.previous || {});
     const changes = isV2 ? {} : (meta?.changes || {});
     const actionRaw = String(meta?.action || meta?.event_action || '').toLowerCase();
     const objectRaw = String((isV2 ? meta?.entity : (meta?.object || meta?.event_object || meta?.model)) || '').toLowerCase();
@@ -128,14 +137,26 @@ export default async function handler(req: any, res: any) {
     const objectN = objectRaw || 'deal';
     if (objectN !== 'deal') return res.status(200).send('ignored');
 
-    // Stage/Pipeline-Filter
+    // Self-updates (unser eigener PUT) ignorieren, falls als API-Change zurückkommt
+    const changeSource = String(meta?.change_source || '');
+    if (isV2 && actionN === 'updated' && changeSource === 'api') {
+      return res.status(200).send('ignored (self-update)');
+    }
+
+    // Stage/Pipeline-Filter (Eintritt in Ziel-Stage)
     const currStageId     = asNumber(curr?.stage_id);
+    const prevStageId     = asNumber(previous?.stage_id);
     const currPipelineId  = asNumber(curr?.pipeline_id);
     const pipelineMatch   = currPipelineId === PIPELINE_ID;
 
     const enteredTargetStage_v1 = actionN === 'updated' && asNumber((changes as any)?.stage_id?.new_value) === STAGE_ID;
     const createdInTargetStage  = actionN === 'added'   && currStageId === STAGE_ID;
-    const inTargetStage_v2      = isV2 && (actionN === 'added' || actionN === 'updated') && currStageId === STAGE_ID;
+
+    // v2: triggere nur, wenn jetzt in Ziel-Stage und entweder vorher nicht in Ziel-Stage ODER kein API-self-update
+    const inTargetStage_v2 =
+      isV2 &&
+      currStageId === STAGE_ID &&
+      (actionN === 'added' || (typeof prevStageId === 'number' ? prevStageId !== STAGE_ID : changeSource !== 'api'));
 
     const stagePass = createdInTargetStage || enteredTargetStage_v1 || inTargetStage_v2;
     if (!stagePass || !pipelineMatch) return res.status(200).send('ignored');
@@ -219,12 +240,11 @@ export default async function handler(req: any, res: any) {
       if (orgId) await pdAttachDealToOrg(PD_API, dealId, orgId);
     }
 
-    // Schon angereichert?
-    if (F_DONE) {
-      const v = (data as any)[F_DONE];
-      const already = v === 1 || v === '1' || v === true || v === 'true';
-      if (already) return res.status(200).send('already enriched');
-    }
+    // ---- Schon angereichert? (Einmal-Flag) ----
+    const F_DONE_VAL = F_DONE ? ((data as any)[F_DONE] ?? data?.custom_fields?.[F_DONE as any]) : undefined;
+    const already =
+      F_DONE && (F_DONE_VAL === 1 || F_DONE_VAL === '1' || F_DONE_VAL === true || F_DONE_VAL === 'true');
+    if (already) return res.status(200).send('already enriched');
 
     // ===== LLM: Website-Meta als Kontext + Mail generieren =====
     let websiteTitle: string | null = null;
@@ -235,9 +255,10 @@ export default async function handler(req: any, res: any) {
       websiteDescription = metaSite.description;
     }
 
-    const personName   = data?.person_name || curr?.person_name || '';
-    const productName  = 'ISAE 3402'; // kanonisiert, vermeidet „Lead iAP“-Rauschen
+    const personName  = data?.person_name || curr?.person_name || '';
+    const productName = 'ISAE 3402'; // kanonisiert
 
+    // Mail erzeugen
     let emailIntro = '';
     try {
       const llm = await generateEmailIntroLLM({
@@ -265,9 +286,9 @@ export default async function handler(req: any, res: any) {
       `• Produkt: ${productName}\n` +
       `• Ansatzpunkte: (TODO)`;
 
-    // Doppel-Update vermeiden: nur schreiben, wenn neu
-    const existingIntro = F_INTRO ? (data as any)[F_INTRO] : undefined;
-    const existingSummary = F_ENRICH ? (data as any)[F_ENRICH] : undefined;
+    // ---- Doppel-Update vermeiden: nur schreiben, wenn wirklich neu ----
+    const existingIntro   = F_INTRO  ? ((data as any)[F_INTRO]  ?? data?.custom_fields?.[F_INTRO  as any]) : undefined;
+    const existingSummary = F_ENRICH ? ((data as any)[F_ENRICH] ?? data?.custom_fields?.[F_ENRICH as any]) : undefined;
 
     const introChanged   = !existingIntro   || String(existingIntro).trim()   !== String(emailIntro).trim();
     const summaryChanged = !existingSummary || String(existingSummary).trim() !== String(enrichmentSummary).trim();
@@ -276,17 +297,13 @@ export default async function handler(req: any, res: any) {
       return res.status(200).send('ok (no change)');
     }
 
-    
-      // Update-Body vorbereiten
+    // Update-Body bauen
     const updateBody: Record<string, any> = {};
     if (F_ENRICH && summaryChanged) updateBody[F_ENRICH] = enrichmentSummary;
     if (F_INTRO  && introChanged)   updateBody[F_INTRO]  = emailIntro;
     if (F_DONE)                     updateBody[F_DONE]   = 1;
 
-    if (Object.keys(updateBody).length === 0) {
-      return res.status(200).send('ok (no fields configured)');
-    }
-
+    if (Object.keys(updateBody).length === 0) return res.status(200).send('ok (no fields configured)');
 
     const putCfg = withAuth(`${PD_API}/deals/${dealId}`);
     const upd = await fetch(putCfg.url, {
