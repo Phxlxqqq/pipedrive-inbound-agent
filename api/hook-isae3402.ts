@@ -67,6 +67,17 @@ async function gatherCompanySignals(domain: string) {
   return { snippet, signals };
 }
 
+// --- Link Labels & Builder ---
+const WP_LABEL_DEFAULT  = 'Whitepaper ISAE 3402';
+const CAL_LABEL_DEFAULT = '20-Min-Termin buchen';
+
+function buildHtmlLinks(opts: { whitepaper?: string; calendar?: string; wpLabel?: string; calLabel?: string }) {
+  const wp = opts.whitepaper ? `<a href="${opts.whitepaper}" target="_blank" rel="noopener noreferrer">${opts.wpLabel || WP_LABEL_DEFAULT}</a>` : '';
+  const cal = opts.calendar ? `<a href="${opts.calendar}" target="_blank" rel="noopener noreferrer">${opts.calLabel || CAL_LABEL_DEFAULT}</a>` : '';
+  return { wpHtml: wp, calHtml: cal };
+}
+
+
 // --- LLM email intro ---
 async function generateEmailIntroLLM(input: {
   personName?: string; orgName?: string; product: string;
@@ -79,20 +90,20 @@ async function generateEmailIntroLLM(input: {
 
   const prompt = [
     `Schreibe eine kurze, präzise B2B-Erstansprache (Deutsch).`,
-    `70–95 Wörter. Keine Superlative, kein Marketing-Sprech, keine Bulletpoints, kein Emoji.`,
+    `70–95 Wörter. Keine Superlative, kein Marketing-Sprech, keine Bulletpoints, keine Emojis, nicht Salesly, sehr persönlich`,
     `Aufgabe: Erkläre knapp, WARUM ${input.orgName || 'das Unternehmen'} ${input.product} benötigen könnte.`,
     `Nutze nur Hinweise aus "Signale" und "Auszug". Wenn unklar, vorsichtig formulieren (z. B. "häufig relevant, wenn …").`,
     `Person: ${input.personName || 'Team'}`,
     `Unternehmen: ${input.orgName || 'Unbekannt'}`,
     input.signalList ? `Signale: ${input.signalList}` : '',
     input.siteSnippet ? `Auszug: ${input.siteSnippet}` : '',
-    `Struktur: 1) Relevanz 2) konkreter Nutzen ${input.product} 3) Beispiel (z. B. Change-/Access-/Operations-Kontrollen) 4) EIN CTA (Link).`,
-    `CTA: entweder Whitepaper [${input.whitepaper || ''}] ODER 20-Min-Termin [${input.calendar || ''}] – aber nicht beides.`,
-    `Stil: direkt, klar, ohne Füllwörter.`,
-    `Ausgabe:`,
-    `SUBJECT: <max 60 Zeichen>`,
-    `BODY:\n<Gruß + 3–5 Sätze + genau EIN Link + Sign-off>`
+    `Struktur: 1) Relevanz 2) konkreter Nutzen 3) Beispiel (z. B. Change-/Access-/Operations-Kontrollen) 4) zwei Abschlusssätze.`,
+    `Ganz am Ende bitte zwei Klartext-Platzhalter hintereinander (keine Klammern):`,
+    `WHITEPAPER_LINK und KALENDER_LINK`,
+    `Beispiel: "Weitere Details im Whitepaper: WHITEPAPER_LINK. Alternativ können Sie sich direkt hier einen Termin buchen: KALENDER_LINK."`,
+    `Ausgabe nur als BODY-Text (ohne SUBJECT), 3–5 Sätze, kein Grußnamen-Platzhalter.`
   ].filter(Boolean).join('\n');
+
 
   const body = {
     model,
