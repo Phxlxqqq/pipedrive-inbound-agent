@@ -693,12 +693,12 @@ export default async function handler(req: any, res: any) {
     // Anti-Halluzination & Längenbegrenzung
     emailIntro = hardGuards(emailIntro);
 
-    // // Begrüßung + Sign-off ergänzen, falls nicht vorhanden
-    // if (!/^hallo/i.test(emailIntro)) {
-    //   const greeting = `Hallo ${personName || 'Team'},\n\n`;
+    // Begrüßung + Sign-off ergänzen, falls nicht vorhanden
+    if (!/^hallo/i.test(emailIntro)) {
+      const greeting = `Hallo ${personName || 'Team'},\n\n`;
     //   const signoff = `\n\nViele Grüße`;
-    //   emailIntro = greeting + emailIntro + signoff;
-    // }
+      emailIntro = greeting + emailIntro;
+    }
 
     const enrichmentSummary =
       `Kurzresearch (automatisch):\n` +
