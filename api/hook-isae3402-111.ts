@@ -1,11 +1,9 @@
 // api/hook-isae3402.ts
-// Vollversion – robust, idempotent, Node.js Runtime (mit Branchen-Klassifikation, Rollen-Framing,
-// dynamischem Prompt, Anti-Halluzination, ENRICH_MODE und Freemail-Fallback)
+// Vollversion – robust, idempotent, Node.js Runtime (mit Branchen-Klassifikation, Rollen-Framing, dynamischem Prompt & Anti-Halluzination)
 // ENVs (Vercel/Next.js):
 // Pflicht: PD_API, PD_API_TOKEN|PD_OAUTH_TOKEN, PIPELINE_ID, STAGE_ID, WEBHOOK_SECRET, OPENAI_API_KEY
 // Custom Fields (interne Keys cf_…): FIELD_ENRICHMENT_SUMMARY, FIELD_EMAIL_INTRO, FIELD_AI_ENRICHED, optional FIELD_SPAM
 // Optional: PRODUCT_TRIGGER, WHITEPAPER_URL, CALENDAR_URL, WHITEPAPER_LABEL, CALENDAR_LABEL, LLM_MODEL, RICH_TEXT_FIELDS
-// Neu: ENRICH_MODE=none|lite|deep, ALLOW_FREEMAIL_FALLBACK=0|1
 
 // -----------------------------------------------------------
 // Next.js/Vercel Runtime Hints (wegen dns + AbortController etc.)
@@ -63,12 +61,12 @@ function domainFromEmail(email?: string | null): string | null {
   return email.slice(at + 1).trim().toLowerCase();
 }
 function inferOrgNameFromDomain(domain: string): string {
-  const clean = domain.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+  const clean = domain.replace(/^https?:\/\//, '').replace(/\/$/, '');
   const core = clean
     .replace(/^www\./, '')
     .replace(/^mail\./, '')
-    .split('.').filter(Boolean)
-    .slice(0, -1) // TLD abwerfen
+    .split('.')
+    .slice(0, -1)
     .join('-')
     .replace(/-/g, ' ')
     .trim();
@@ -215,30 +213,22 @@ function extractJSONLD(html: string): any[] {
   return out;
 }
 
-// --- Erweiterte Enrichment-Funktion (mit ENRICH_MODE) -------------
+// --- Erweiterte Enrichment-Funktion -------------------------------
 async function enrichCompanyProfile(domain: string) {
-  const mode = (process.env.ENRICH_MODE || 'lite').toLowerCase();
   const base0 = domain.startsWith('http') ? domain : `https://${domain}`;
   const bases = [base0.replace(/\/$/, ''), base0.replace(/\/$/, '').replace(/^https:\/\//,'https://www.')];
-
-  const paths = mode === 'deep'
-    ? ['', '/about', '/company', '/impressum', '/imprint', '/security', '/trust', '/compliance', '/privacy', '/gdpr', '/products', '/solutions']
-    : ['', '/about', '/impressum'];
+  const paths = [
+    '', '/about', '/en/about', '/company', '/impressum', '/imprint',
+    '/security', '/trust', '/compliance', '/legal', '/privacy', '/gdpr',
+    '/products', '/platform', '/solutions', '/soc', '/audit'
+  ];
 
   let bestHtml = '';
   for (const b of bases) {
-    const limited = paths.slice(0, mode === 'deep' ? 6 : 3); // Bremse
-    const parts: string[] = [];
-    for (const p of limited) {
-      try {
-        const r = await fetchWithTimeout(b + p, { headers: { 'User-Agent': 'Mozilla/5.0' } }, 6000);
-        parts.push(r.ok ? await r.text() : '');
-      } catch { parts.push(''); }
-    }
+    const parts = await Promise.all(paths.map(p => fetchWithTimeout(b + p, { headers: { 'User-Agent': 'Mozilla/5.0' } }).then(r => r.ok ? r.text() : '').catch(()=>'') ));
     const joined = parts.filter(Boolean).join('\n');
     if (joined.length > bestHtml.length) bestHtml = joined;
   }
-
   const text = bestHtml
     .replace(/<script[\s\S]*?<\/script>/gi, ' ')
     .replace(/<style[\s\S]*?<\/style>/gi, ' ')
@@ -273,28 +263,25 @@ async function enrichCompanyProfile(domain: string) {
   const blurb = [ ogDesc, descLD ].filter(Boolean).join(' ').slice(0, 320);
 
   return {
-    highlights,         // z.B. "Company – Product Data Platform"
+    highlights,         // z.B. "Channel Pilot Solutions – Product Data Platform"
     blurb,              // Kurzbeschreibung aus Meta/LD
     keywords: Array.from(kw), // ['saas','marketplace','api',...]
-    rawText: text.slice(0, 1200) // für siteSnippet
+    rawText: text.slice(0, 1200) // für dein existing siteSnippet
   };
 }
 
 async function gatherCompanySignals(domain: string) {
-  const mode = (process.env.ENRICH_MODE || 'lite').toLowerCase();
   const raw = domain.startsWith('http') ? domain : `https://${domain}`;
   const baseCandidates = [raw.replace(/\/$/, ''), raw.replace(/\/$/, '').replace(/^https:\/\//, 'https://www.')];
-  const paths = mode === 'deep'
-    ? ['', '/about', '/company', '/impressum', '/privacy', '/security']
-    : ['', '/about', '/impressum'];
+  const paths = [
+  '', '/about', '/en/about', '/company', '/imprint', '/impressum',
+  '/security', '/trust', '/compliance', '/legal', '/gdpr', '/privacy',
+  '/soc', '/audit'
+  ];
 
   let joined = '';
   for (const base of baseCandidates) {
-    const texts: string[] = [];
-    for (const p of paths.slice(0, mode === 'deep' ? 6 : 3)) {
-      // leichte Variante mit text-only
-      texts.push(await fetchText(base + p));
-    }
+    const texts = await Promise.all(paths.map((p) => fetchText(base + p)));
     const chunk = texts.filter(Boolean).join(' \n');
     if (chunk.length > joined.length) joined = chunk; // nimm die längste/erfolgreichste Variante
   }
@@ -377,17 +364,15 @@ function buildLinks(opts: { whitepaper?: string; calendar?: string; wpLabel?: st
   const calHtml = calUrl ? `<a href="${calUrl}" target="_blank" rel="noopener noreferrer">${calLabel}</a>` : '';
   const wpText = wpUrl ? `${wpLabel}: ${wpUrl}` : '';
   const calText = calUrl ? `${calLabel}: ${calUrl}` : '';
-  return { wpHtml, calHtml, wpText, calText, wpUrl, calUrl };
+  return { wpHtml, calHtml, wpText, calText };
 }
 
 // -----------------------------------------------------------
 // Post-Processing Guards (Anti-Halluzination & Länge)
 // -----------------------------------------------------------
 function hardGuards(body: string) {
-  // Verhindere Fantasie-Zusätze bei ISAE 3402 und normalisiere Schreibweisen
+  // Verhindere Fantasie-Zusätze bei ISAE 3402
   body = body.replace(/\bisae\s*3402\b\s*(lead|pack|suite|iap|plus|pro)?/gi, 'ISAE 3402');
-  body = body.replace(/\bsoc\s*2\b/gi, 'SOC 2');
-  body = body.replace(/\biso\s*27001\b/gi, 'ISO 27001');
   // eckige Klammern entfernen
   body = body.replace(/\[([^\]]+)\]/g, '$1');
   // grobes Längenlimit
@@ -501,8 +486,6 @@ export default async function handler(req: any, res: any) {
     const CALENDAR_LABEL = process.env.CALENDAR_LABEL || CAL_LABEL_DEFAULT;
 
     const RICH_TEXT_FIELDS = process.env.RICH_TEXT_FIELDS !== '0'; // default: HTML erlaubt
-    const ENRICH_MODE = (process.env.ENRICH_MODE || 'lite').toLowerCase() as 'none'|'lite'|'deep';
-    const ALLOW_FREEMAIL_FALLBACK = process.env.ALLOW_FREEMAIL_FALLBACK !== '0';
 
     if ((!process.env.PD_API_TOKEN && !process.env.PD_OAUTH_TOKEN) || !PIPELINE_ID || !STAGE_ID) {
       return res.status(500).send('Missing environment variables');
@@ -592,7 +575,7 @@ export default async function handler(req: any, res: any) {
       }
     }
 
-    // 3) Spam-Filter + optionaler Freemail-Fallback
+    // 3) Spam-Filter
     if (emailDomain && isFreemailOrDisposable(emailDomain)) {
       if (F_SPAM) {
         const putSpam = withAuth(`${PD_API}/deals/${dealId}`);
@@ -602,11 +585,7 @@ export default async function handler(req: any, res: any) {
           body: JSON.stringify({ [F_SPAM]: 1 }),
         }).catch(() => null);
       }
-      if (!ALLOW_FREEMAIL_FALLBACK) {
-        return res.status(200).send('ok (spam/freemail)');
-      }
-      // Fallback: neutrale Mail ohne Firmenbezug
-      orgName = '';
+      return res.status(200).send('ok (spam/freemail)');
     }
     if (emailDomain && !(await hasMX(emailDomain))) {
       if (F_SPAM) {
@@ -617,21 +596,18 @@ export default async function handler(req: any, res: any) {
           body: JSON.stringify({ [F_SPAM]: 1 }),
         }).catch(() => null);
       }
-      // MX-Fehler: standardmäßig Exit; wer will, kann auch hier Fallback erlauben
       return res.status(200).send('ok (no_mx)');
     }
 
     // 4) Wenn bereits eine Organisation am Deal hängt → NICHT ändern
     const hasExistingOrg = !!orgId;
-
-    // 4a) Zuerst: Firmenname aus dem Standardfeld des Webforms
-    const formOrgName = String(
-      curr?.organization_name || curr?.org_name ||
-      data?.organization_name || data?.org_name || ''
-    ).trim();
-    const hasFormCompany = !!formOrgName;
-
     if (!hasExistingOrg) {
+      // 4a) Zuerst: Firmenname aus dem Standardfeld des Webforms
+      const formOrgName = String(
+        curr?.organization_name || curr?.org_name ||
+        data?.organization_name || data?.org_name || ''
+      ).trim();
+
       if (formOrgName) {
         const hitsByName = await pdSearchOrg(PD_API, formOrgName);
         const normForm = normalizeName(formOrgName);
@@ -686,14 +662,12 @@ export default async function handler(req: any, res: any) {
     if (already) return res.status(200).send('already enriched');
 
     // -----------------------------------------------------------
-    // Website-Signals sammeln (je nach ENRICH_MODE) & LLM generieren
+    // Website-Signals sammeln & LLM generieren
     // -----------------------------------------------------------
     let snippet = '';
     let signals: string[] = [];
     let company: any = {};
-
-    // Nur fetchen, wenn: Domain vorhanden UND ENRICH_MODE != none UND (nicht bereits Formular-Firma gesetzt ODER deep erzwungen)
-    if (emailDomain && ENRICH_MODE !== 'none' && !(hasFormCompany && ENRICH_MODE !== 'deep')) {
+    if (emailDomain) {
       const gathered = await gatherCompanySignals(emailDomain);
       snippet = gathered.snippet;
       signals = gathered.signals;
@@ -715,7 +689,7 @@ export default async function handler(req: any, res: any) {
     let emailIntro: string;
     try {
       const llm = await generateEmailIntroLLM({
-        personName, orgName: orgName || (hasFormCompany ? formOrgName : ''), product: productName,
+        personName, orgName, product: productName,
         signalList: signals.join(', '), siteSnippet: snippet,
         whitepaper: WHITEPAPER_URL, calendar: CALENDAR_URL,
         companyHighlights,
@@ -724,14 +698,14 @@ export default async function handler(req: any, res: any) {
       emailIntro = (llm?.body || '').trim();
     } catch (e: any) {
       console.warn('LLM failed, using fallback text:', e?.message);
-      emailIntro = `Wir sehen bei ähnlichen Unternehmen häufig Bedarf an ${productName} – insbesondere rund um klar definierte Kontrollen und Prüfpfade. Gern teilen wir Details und Beispiele. Weitere Details im Whitepaper: WHITEPAPER_LINK. Wenn Sie das Thema kurz einordnen möchten: KALENDER_LINK.`;
+      emailIntro = `Wir sehen bei ähnlichen Unternehmen häufig Bedarf an ${productName} – insbesondere rund um klar definierte Kontrollen und Prüfpfade. Gern teilen wir Details und Beispiele. WHITEPAPER_LINK Alternativ direkt sprechen: KALENDER_LINK.`;
     }
 
     // Anti-Halluzination & Längenbegrenzung
     emailIntro = hardGuards(emailIntro);
 
     // Tokens ersetzen & Format (HTML vs. Plain-Text)
-    const { wpHtml, calHtml, wpText, calText, wpUrl, calUrl } = buildLinks({
+    const { wpHtml, calHtml, wpText, calText } = buildLinks({
       whitepaper: WHITEPAPER_URL,
       calendar: CALENDAR_URL,
       wpLabel: WHITEPAPER_LABEL,
@@ -749,9 +723,6 @@ export default async function handler(req: any, res: any) {
           ? emailIntro.replace(/KALENDER_LINK/g, calHtml)
           : emailIntro + ` Alternativ direkt sprechen: ${calHtml}.`;
       }
-      // Fehlende Links sauber entfernen
-      if (!wpUrl) emailIntro = emailIntro.replace(/Weitere Details im Whitepaper:.*WHITEPAPER_LINK\.?\s*/gi, '');
-      if (!calUrl) emailIntro = emailIntro.replace(/Wenn Sie das Thema kurz einordnen möchten:.*KALENDER_LINK\.?\s*/gi, '');
     } else {
       // Plain-Text-Felder: keine HTML-Anker
       if (wpText) {
@@ -764,9 +735,6 @@ export default async function handler(req: any, res: any) {
           ? emailIntro.replace(/KALENDER_LINK/g, calText)
           : emailIntro + ` Alternativ direkt sprechen: ${calText}.`;
       }
-      // Fehlende Links sauber entfernen
-      if (!wpText) emailIntro = emailIntro.replace(/Weitere Details im Whitepaper:.*WHITEPAPER_LINK\.?\s*/gi, '');
-      if (!calText) emailIntro = emailIntro.replace(/Wenn Sie das Thema kurz einordnen möchten:.*KALENDER_LINK\.?\s*/gi, '');
     }
 
     // Begrüßung + Sign-off ergänzen, falls nicht vorhanden (Template rendert HTML oder Plain-Text)
@@ -779,7 +747,7 @@ export default async function handler(req: any, res: any) {
     const enrichmentSummary =
       `Kurzresearch (automatisch):\n` +
       `• Person: ${personName || 'n/a'}\n` +
-      `• Unternehmen: ${orgName || formOrgName || 'n/a'}\n` +
+      `• Unternehmen: ${orgName || 'n/a'}\n` +
       (signals.length ? `• Signale: ${signals.join(', ')}\n` : '') +
       (snippet ? `• Auszug: ${snippet.slice(0, 220)}…\n` : '') +
       `• Produkt: ${productName}\n` +
