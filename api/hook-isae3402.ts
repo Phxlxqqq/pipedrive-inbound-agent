@@ -396,7 +396,7 @@ async function generateEmailIntroLLM(input: {
 
   const prompt = [
     'Schreibe eine kurze, präzise B2B-Erstansprache auf Deutsch.',
-    '70–95 Wörter. 3–5 Sätze. Kein Betreff. Kein Gruß. Keine Emojis. Keine Bulletpoints.',
+    '70–95 Wörter. 3–5 Sätze. Kein Betreff. Kein Grußformeln am Ende. Keine Emojis. Keine Bulletpoints. Kein',
     'Ton: sachlich, respektvoll, lösungsorientiert. Keine Superlative. Kein Marketing-Sprech.',
 
     `Adressat (optional): ${input.personName || 'Team'}`,
