@@ -4,7 +4,7 @@
 // ENVs (Vercel/Next.js):
 // Pflicht: PD_API, PD_API_TOKEN|PD_OAUTH_TOKEN, PIPELINE_ID, STAGE_ID, WEBHOOK_SECRET, OPENAI_API_KEY
 // Custom Fields (interne Keys cf_…): FIELD_ENRICHMENT_SUMMARY, FIELD_EMAIL_INTRO, FIELD_AI_ENRICHED, optional FIELD_SPAM
-// Optional: PRODUCT_TRIGGER, WHITEPAPER_URL, CALENDAR_URL, WHITEPAPER_LABEL, CALENDAR_LABEL, LLM_MODEL, RICH_TEXT_FIELDS
+// Optional: PRODUCT_TRIGGER, LLM_MODEL
 // Neu: ENRICH_MODE=none|lite|deep, ALLOW_FREEMAIL_FALLBACK=0|1
 
 // -----------------------------------------------------------
@@ -364,23 +364,6 @@ function buildIndustryFrame(orgName?: string, snippet?: string, signals: string[
 }
 
 // -----------------------------------------------------------
-// Link-Labels & Builder (HTML-Anker + Plain-Text)
-// -----------------------------------------------------------
-const WP_LABEL_DEFAULT = 'Whitepaper ISAE 3402';
-const CAL_LABEL_DEFAULT = '20-Min-Termin buchen';
-function buildLinks(opts: { whitepaper?: string; calendar?: string; wpLabel?: string; calLabel?: string }) {
-  const wpUrl = opts.whitepaper || '';
-  const calUrl = opts.calendar || '';
-  const wpLabel = opts.wpLabel || WP_LABEL_DEFAULT;
-  const calLabel = opts.calLabel || CAL_LABEL_DEFAULT;
-  const wpHtml = wpUrl ? `<a href="${wpUrl}" target="_blank" rel="noopener noreferrer">${wpLabel}</a>` : '';
-  const calHtml = calUrl ? `<a href="${calUrl}" target="_blank" rel="noopener noreferrer">${calLabel}</a>` : '';
-  const wpText = wpUrl ? `${wpLabel}: ${wpUrl}` : '';
-  const calText = calUrl ? `${calLabel}: ${calUrl}` : '';
-  return { wpHtml, calHtml, wpText, calText, wpUrl, calUrl };
-}
-
-// -----------------------------------------------------------
 // Post-Processing Guards (Anti-Halluzination & Länge)
 // -----------------------------------------------------------
 function hardGuards(body: string) {
@@ -397,12 +380,11 @@ function hardGuards(body: string) {
 }
 
 // -----------------------------------------------------------
-// LLM: personalisierte Mail (Tokens WHITEPAPER_LINK / KALENDER_LINK)
+// LLM: personalisierte Mail
 // -----------------------------------------------------------
 async function generateEmailIntroLLM(input: {
   personName?: string; orgName?: string; product: string;
   signalList?: string; siteSnippet?: string;
-  whitepaper?: string; calendar?: string;
   companyHighlights?: string; roleFrame?: string;
 }) {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -431,18 +413,6 @@ async function generateEmailIntroLLM(input: {
     '1) Einstieg mit kurzem, plausiblen Anwendungskontext (aus Signals/Website; wenn unklar, neutral).',
     `2) Konkreter Nutzen von ${input.product} (z. B. weniger Rückfragen in Assessments, prüfbare Kontrollen, schnelleres Onboarding).`,
     '3) Beispiel-Kontext – z. B. Änderungen an Systemen, Zugriffe auf Daten, Betriebs-/Übergabeprozesse.',
-    '4) Abschluss: zwei knappe Sätze; dann zwei separate Call-to-Action-Zeilen (siehe unten).',
-
-    // Harte Verbote
-    'Es dürfen KEINE neuen Produkt-/Zertifikatsbezeichnungen erfunden werden.',
-    'Der einzige zulässige Produktname ist exakt: "ISAE 3402". Keine Zusätze wie "Lead", "Pack", "Suite", "iAP" etc.',
-    'Wenn unklar: neutral formulieren ("ISAE 3402 Bericht" / "ISAE 3402 Nachweis").',
-    'Verbote: keine Floskeln wie „branchenführend“, „maßgeschneidert“, „innovativ“.',
-    'Keine Behauptungen ohne Basis; im Zweifel: „häufig gefordert“, „typisch in Ausschreibungen“.',
-
-    'Am Ende des Textes GENAU diese zwei Zeilen, jeweils alleinstehend:',
-    'Weitere Details im Whitepaper: WHITEPAPER_LINK.',
-    'Wenn Sie das Thema kurz einordnen möchten: KALENDER_LINK.'
   ].filter(Boolean).join('\n');
 
   const body = {
@@ -495,12 +465,6 @@ export default async function handler(req: any, res: any) {
     const F_DONE = process.env.FIELD_AI_ENRICHED as string | undefined;
     const F_SPAM = process.env.FIELD_SPAM as string | undefined;
 
-    const WHITEPAPER_URL = process.env.WHITEPAPER_URL || '';
-    const CALENDAR_URL = process.env.CALENDAR_URL || '';
-    const WHITEPAPER_LABEL = process.env.WHITEPAPER_LABEL || WP_LABEL_DEFAULT;
-    const CALENDAR_LABEL = process.env.CALENDAR_LABEL || CAL_LABEL_DEFAULT;
-
-    const RICH_TEXT_FIELDS = process.env.RICH_TEXT_FIELDS !== '0'; // default: HTML erlaubt
     const ENRICH_MODE = (process.env.ENRICH_MODE || 'lite').toLowerCase() as 'none'|'lite'|'deep';
     const ALLOW_FREEMAIL_FALLBACK = process.env.ALLOW_FREEMAIL_FALLBACK !== '0';
 
@@ -535,7 +499,7 @@ export default async function handler(req: any, res: any) {
     // Stage/Pipeline-Filter – nur Eintritt/Neuanlage in Ziel-Stage
     const currStageId = asNumber(curr?.stage_id);
     const prevStageId = asNumber(previous?.stage_id);
-    const currPipelineId = asNumber(curr?.pipeline_id);
+       const currPipelineId = asNumber(curr?.pipeline_id);
     const pipelineMatch = currPipelineId === PIPELINE_ID;
 
     const enteredTargetStage_v1 = actionN === 'updated' && asNumber((changes as any)?.stage_id?.new_value) === STAGE_ID;
@@ -717,59 +681,19 @@ export default async function handler(req: any, res: any) {
       const llm = await generateEmailIntroLLM({
         personName, orgName: orgName || (hasFormCompany ? formOrgName : ''), product: productName,
         signalList: signals.join(', '), siteSnippet: snippet,
-        whitepaper: WHITEPAPER_URL, calendar: CALENDAR_URL,
         companyHighlights,
         roleFrame
       });
       emailIntro = (llm?.body || '').trim();
     } catch (e: any) {
       console.warn('LLM failed, using fallback text:', e?.message);
-      emailIntro = `Wir sehen bei ähnlichen Unternehmen häufig Bedarf an ${productName} – insbesondere rund um klar definierte Kontrollen und Prüfpfade. Gern teilen wir Details und Beispiele. Weitere Details im Whitepaper: WHITEPAPER_LINK. Wenn Sie das Thema kurz einordnen möchten: KALENDER_LINK.`;
+      emailIntro = `Wir sehen bei ähnlichen Unternehmen häufig Bedarf an ${productName} – insbesondere rund um klar definierte Kontrollen und Prüfpfade. Gern teilen wir Details und Beispiele.`;
     }
 
     // Anti-Halluzination & Längenbegrenzung
     emailIntro = hardGuards(emailIntro);
 
-    // Tokens ersetzen & Format (HTML vs. Plain-Text)
-    const { wpHtml, calHtml, wpText, calText, wpUrl, calUrl } = buildLinks({
-      whitepaper: WHITEPAPER_URL,
-      calendar: CALENDAR_URL,
-      wpLabel: WHITEPAPER_LABEL,
-      calLabel: CALENDAR_LABEL,
-    });
-
-    if (RICH_TEXT_FIELDS) {
-      if (wpHtml) {
-        emailIntro = emailIntro.includes('WHITEPAPER_LINK')
-          ? emailIntro.replace(/WHITEPAPER_LINK/g, wpHtml)
-          : emailIntro + (emailIntro.endsWith('.') ? '' : '.') + ` Weitere Details im ${WHITEPAPER_LABEL}: ${wpHtml}.`;
-      }
-      if (calHtml) {
-        emailIntro = emailIntro.includes('KALENDER_LINK')
-          ? emailIntro.replace(/KALENDER_LINK/g, calHtml)
-          : emailIntro + ` Alternativ direkt sprechen: ${calHtml}.`;
-      }
-      // Fehlende Links sauber entfernen
-      if (!wpUrl) emailIntro = emailIntro.replace(/Weitere Details im Whitepaper:.*WHITEPAPER_LINK\.?\s*/gi, '');
-      if (!calUrl) emailIntro = emailIntro.replace(/Wenn Sie das Thema kurz einordnen möchten:.*KALENDER_LINK\.?\s*/gi, '');
-    } else {
-      // Plain-Text-Felder: keine HTML-Anker
-      if (wpText) {
-        emailIntro = emailIntro.includes('WHITEPAPER_LINK')
-          ? emailIntro.replace(/WHITEPAPER_LINK/g, wpText)
-          : emailIntro + (emailIntro.endsWith('.') ? '' : '.') + ` Weitere Details im ${wpText}.`;
-      }
-      if (calText) {
-        emailIntro = emailIntro.includes('KALENDER_LINK')
-          ? emailIntro.replace(/KALENDER_LINK/g, calText)
-          : emailIntro + ` Alternativ direkt sprechen: ${calText}.`;
-      }
-      // Fehlende Links sauber entfernen
-      if (!wpText) emailIntro = emailIntro.replace(/Weitere Details im Whitepaper:.*WHITEPAPER_LINK\.?\s*/gi, '');
-      if (!calText) emailIntro = emailIntro.replace(/Wenn Sie das Thema kurz einordnen möchten:.*KALENDER_LINK\.?\s*/gi, '');
-    }
-
-    // Begrüßung + Sign-off ergänzen, falls nicht vorhanden (Template rendert HTML oder Plain-Text)
+    // Begrüßung + Sign-off ergänzen, falls nicht vorhanden
     if (!/^hallo/i.test(emailIntro)) {
       const greeting = `Hallo ${personName || 'Team'},\n\n`;
       const signoff = `\n\nViele Grüße`;
@@ -793,7 +717,7 @@ export default async function handler(req: any, res: any) {
     const summaryChanged = !existingSummary || String(existingSummary).trim() !== String(enrichmentSummary).trim();
     if (!introChanged && !summaryChanged) return res.status(200).send('ok (no change)');
 
-    // Update senden (optimistisch). Optional: zweiter GET + Vergleich für maximale Idempotenz.
+    // Update senden
     const updateBody: Record<string, any> = {};
     if (F_ENRICH && summaryChanged) updateBody[F_ENRICH] = enrichmentSummary;
     if (F_INTRO && introChanged) updateBody[F_INTRO] = emailIntro;
