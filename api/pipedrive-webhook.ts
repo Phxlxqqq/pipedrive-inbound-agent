@@ -1,12 +1,20 @@
-// api/pipedrive-webhook/route.ts
+// api/pipedrive-webhook.ts
 
-import { env } from "../../../lib/env";
-import { buildCompanyIntro } from "../../../lib/companyEnricher";
-import { generateFollowupMails } from "../../../lib/mailGenerator";
-import { updateDeal } from "../../../lib/pipedrive";
+import { env } from "../lib/env";
+import { buildCompanyIntro } from "../lib/companyEnricher";
+import { generateFollowupMails } from "../lib/mailGenerator";
+import { updateDeal } from "../lib/pipedrive";
 
+// Sagt Vercel: das ist eine Edge Function mit Web Request/Response
+export const config = {
+  runtime: "edge",
+};
 
-export async function POST(req: Request) {
+export default async function handler(req: Request): Promise<Response> {
+  if (req.method !== "POST") {
+    return new Response("Method Not Allowed", { status: 405 });
+  }
+
   // Secret über Query-Parameter prüfen: ?secret=WEBHOOK_SECRET
   const url = new URL(req.url);
   const secret = url.searchParams.get("secret");
@@ -15,7 +23,7 @@ export async function POST(req: Request) {
     return new Response("Forbidden", { status: 403 });
   }
 
-  const payload = await req.json();
+  const payload: any = await req.json();
   const current = payload.current || payload.data || payload.deal;
 
   if (!current) {

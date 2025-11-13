@@ -1,4 +1,3 @@
-// tsconfig.json
 {
   "compilerOptions": {
     "target": "ES2019",
@@ -14,7 +13,7 @@
     "noEmit": true
   },
   "include": [
-    "app/api/**/*.ts",
+    "api/**/*.ts",
     "lib/**/*.ts"
   ],
   "exclude": ["node_modules"]
