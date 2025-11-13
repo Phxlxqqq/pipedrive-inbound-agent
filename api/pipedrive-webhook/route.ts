@@ -38,7 +38,7 @@ export async function POST(req: Request) {
 
   // Optional: Produkt-Filter
   if (env.productTrigger && current.product_name) {
-    const productName = String(current.product_name); 
+    const productName = String(current.product_name);
     if (!productName.includes(env.productTrigger)) {
       return new Response("Ignored (product)", { status: 200 });
     }
