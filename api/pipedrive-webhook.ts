@@ -68,19 +68,19 @@ export default async function handler(req: Request): Promise<Response> {
     const webformTitle: string =
       current.title || current.subject || "Anfrage über Webformular";
 
-    // Produkt-Filter (optional)
-    if (env.productTrigger) {
-      const productName = current.product_name
-        ? String(current.product_name)
-        : "";
-      if (!productName.includes(env.productTrigger)) {
-        console.log("[WEBHOOK] Ignored (product mismatch)", {
-          productName,
-          trigger: env.productTrigger,
-        });
-        return new Response("Ignored (product)", { status: 200 });
-      }
-    }
+    // // Produkt-Filter (optional)
+    // if (env.productTrigger) {
+    //   const productName = current.product_name
+    //     ? String(current.product_name)
+    //     : "";
+    //   if (!productName.includes(env.productTrigger)) {
+    //     console.log("[WEBHOOK] Ignored (product mismatch)", {
+    //       productName,
+    //       trigger: env.productTrigger,
+    //     });
+    //     return new Response("Ignored (product)", { status: 200 });
+    //   }
+    // }
 
     // Person & Email
     const person = current.person_id || current.person || {};
