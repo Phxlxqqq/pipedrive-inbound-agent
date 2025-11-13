@@ -1,9 +1,9 @@
 // api/pipedrive-webhook/route.ts
 
-import { env } from "../../lib/env";
-import { buildCompanyIntro } from "../../lib/companyEnricher";
-import { generateFollowupMails } from "../../lib/mailGenerator";
-import { updateDeal } from "../../lib/pipedrive";
+import { env } from "../../../lib/env";
+import { buildCompanyIntro } from "../../../lib/companyEnricher";
+import { generateFollowupMails } from "../../../lib/mailGenerator";
+import { updateDeal } from "../../../lib/pipedrive";
 
 
 export async function POST(req: Request) {
