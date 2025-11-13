@@ -8,7 +8,7 @@ function required(name: string): string {
 export const env = {
   pipedrive: {
     token: required("PD_API_TOKEN"),
-    baseUrl: required("PD_API"), // z.B. https://xxx.pipedrive.com/api/v1
+    baseUrl: required("PD_API"), 
   },
   brave: {
     apiKey: required("BRAVE_API_KEY"),

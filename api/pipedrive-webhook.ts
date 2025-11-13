@@ -2,12 +2,43 @@
 
 import { env } from "../lib/env";
 import { buildCompanyIntro } from "../lib/companyEnricher";
+import type { CompanyIntro } from "../lib/companyEnricher";
 import { generateFollowupMails } from "../lib/mailGenerator";
 import { updateDeal, getPerson } from "../lib/pipedrive";
 
 export const config = {
   runtime: "edge",
 };
+
+// Hilfsfunktion: baut ein sauberes, professionelles Enrichment-Summary
+function buildEnrichmentSummary(ci: CompanyIntro): string {
+  const parts: string[] = [];
+
+  // 1. Firmenname
+  parts.push(ci.companyName);
+
+  // 2. Branche (falls vorhanden und nicht nur "unbekannt")
+  if (ci.industry && ci.industry.toLowerCase() !== "unbekannt") {
+    parts.push(`Branche: ${ci.industry}`);
+  }
+
+  // 3. One-Liner (nur, wenn kein generischer Fallback)
+  if (ci.oneLiner && ci.oneLiner !== "ein Unternehmen in deinem Bereich") {
+    parts.push(ci.oneLiner);
+  }
+
+  // 4. Themen (falls vorhanden)
+  if (ci.topics && ci.topics.length > 0) {
+    parts.push(`Themen: ${ci.topics.join(", ")}`);
+  }
+
+  // 5. Fallback, wenn wir quasi nichts wissen
+  if (parts.length === 1) {
+    parts.push("Profil aktuell nur teilweise verfügbar — weitere Infos folgen.");
+  }
+
+  return parts.join(" | ");
+}
 
 export default async function handler(req: Request): Promise<Response> {
   console.log("[WEBHOOK] Hit", req.method, req.url);
@@ -47,7 +78,10 @@ export default async function handler(req: Request): Promise<Response> {
       title: current.title,
     });
 
-    // Pipeline-Filter
+    const webformTitle: string =
+      current.title || current.subject || "Anfrage über Webformular";
+
+    // ✂️ Optional: Pipeline-Filter (nur wenn du filtern willst)
     if (env.pipelineId && String(current.pipeline_id) !== env.pipelineId) {
       console.log("[WEBHOOK] Ignored (pipeline mismatch)", {
         dealPipeline: current.pipeline_id,
@@ -56,7 +90,7 @@ export default async function handler(req: Request): Promise<Response> {
       return new Response("Ignored (pipeline)", { status: 200 });
     }
 
-    // Stage-Filter
+    // ✂️ Optional: Stage-Filter
     if (env.stageId && String(current.stage_id) !== env.stageId) {
       console.log("[WEBHOOK] Ignored (stage mismatch)", {
         dealStage: current.stage_id,
@@ -65,31 +99,29 @@ export default async function handler(req: Request): Promise<Response> {
       return new Response("Ignored (stage)", { status: 200 });
     }
 
-    const webformTitle: string =
-      current.title || current.subject || "Anfrage über Webformular";
+    // ✂️ Optional: Produkt-Filter – falls du das über Titel/Produkt triggern willst
+    if (env.productTrigger) {
+      const productName = String(
+        current.product_name || current.title || ""
+      );
+      if (!productName.includes(env.productTrigger)) {
+        console.log("[WEBHOOK] Ignored (product mismatch)", {
+          productName,
+          trigger: env.productTrigger,
+        });
+        return new Response("Ignored (product)", { status: 200 });
+      }
+    }
 
-    // // Produkt-Filter (optional)
-    // if (env.productTrigger) {
-    //   const productName = current.product_name
-    //     ? String(current.product_name)
-    //     : "";
-    //   if (!productName.includes(env.productTrigger)) {
-    //     console.log("[WEBHOOK] Ignored (product mismatch)", {
-    //       productName,
-    //       trigger: env.productTrigger,
-    //     });
-    //     return new Response("Ignored (product)", { status: 200 });
-    //   }
-    // }
+    // ---------- PERSON & EMAIL ROBUST ERMITTELN ----------
 
-        // Person & Email
     const personRef = current.person_id || current.person || null;
 
     let email: string | undefined;
     let leadFirstName: string | undefined;
     let personName: string | undefined;
 
-    // 1) Falls Pipedrive im Webhook bereits ein Person-Objekt mitsendet
+    // 1) Falls im Webhook schon ein Person-Objekt steckt
     if (personRef && typeof personRef === "object") {
       personName = personRef.name;
       leadFirstName =
@@ -103,7 +135,7 @@ export default async function handler(req: Request): Promise<Response> {
         current.person_email;
     }
 
-    // 2) Wenn wir immer noch keine E-Mail haben, versuchen wir die ID herauszulesen
+    // 2) Personen-ID extrahieren
     let personId: number | undefined;
 
     if (typeof personRef === "number") {
@@ -111,13 +143,13 @@ export default async function handler(req: Request): Promise<Response> {
     } else if (
       personRef &&
       typeof personRef === "object" &&
-      typeof personRef.value === "number"
+      typeof (personRef as any).value === "number"
     ) {
       // übliches Pipedrive-Format: { value: 123, name: "Anna Beispiel" }
-      personId = personRef.value;
+      personId = (personRef as any).value;
     }
 
-    // 3) Wenn es eine Personen-ID gibt, aber noch keine Email: Person nachladen
+    // 3) Wenn wir noch keine E-Mail haben, Person via API nachladen
     if (!email && personId) {
       try {
         const person = await getPerson(personId);
@@ -139,27 +171,19 @@ export default async function handler(req: Request): Promise<Response> {
       }
     }
 
-    // 4) Falls immer noch keine Mail: Abbrechen (wie bisher)
+    // 4) Wenn wir IMMER noch keine E-Mail haben → abbrechen
     if (!email) {
       console.error("[WEBHOOK] No email for deal", { dealId });
       return new Response("No email", { status: 200 });
     }
 
-    // leadFirstName fallback
+    // leadFirstName Fallback
     if (!leadFirstName && personName) {
       leadFirstName = personName.split(" ")[0];
     }
 
     const orgNameRaw: string | null =
       current.org_name || current.org_id?.name || null;
-
-    console.log("[WEBHOOK] Lead data", {
-      email,
-      leadFirstName,
-      orgNameRaw,
-      webformTitle,
-    });
-
 
     console.log("[WEBHOOK] Lead data", {
       email,
@@ -190,17 +214,8 @@ export default async function handler(req: Request): Promise<Response> {
       thirdLen: mails.third?.length,
     });
 
-    // 3) Enrichment-Summary bauen
-    const enrichmentSummary = [
-      companyIntro.companyName,
-      companyIntro.industry && `Branche: ${companyIntro.industry}`,
-      `Kurzprofil: ${companyIntro.oneLiner}`,
-      companyIntro.topics.length &&
-        `Themen: ${companyIntro.topics.join(", ")}`,
-    ]
-      .filter(Boolean)
-      .join(" | ");
-
+    // 3) Enrichment-Summary bauen (neue Logik)
+    const enrichmentSummary = buildEnrichmentSummary(companyIntro);
     console.log("[WEBHOOK] Enrichment summary", enrichmentSummary);
 
     // 4) Deal-Felder schreiben
