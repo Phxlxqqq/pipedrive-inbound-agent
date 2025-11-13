@@ -3,7 +3,7 @@
 import { env } from "../lib/env";
 import { buildCompanyIntro } from "../lib/companyEnricher";
 import { generateFollowupMails } from "../lib/mailGenerator";
-import { updateDeal } from "../lib/pipedrive";
+import { updateDeal, getPerson } from "../lib/pipedrive";
 
 export const config = {
   runtime: "edge",
@@ -82,24 +82,84 @@ export default async function handler(req: Request): Promise<Response> {
     //   }
     // }
 
-    // Person & Email
-    const person = current.person_id || current.person || {};
-    const email: string | undefined =
-      person.email?.[0]?.value ||
-      person.primary_email ||
-      current.email ||
-      current.person_email;
+        // Person & Email
+    const personRef = current.person_id || current.person || null;
 
+    let email: string | undefined;
+    let leadFirstName: string | undefined;
+    let personName: string | undefined;
+
+    // 1) Falls Pipedrive im Webhook bereits ein Person-Objekt mitsendet
+    if (personRef && typeof personRef === "object") {
+      personName = personRef.name;
+      leadFirstName =
+        personRef.first_name ||
+        (personRef.name && String(personRef.name).split(" ")[0]);
+
+      email =
+        personRef.email?.[0]?.value ||
+        personRef.primary_email ||
+        current.email ||
+        current.person_email;
+    }
+
+    // 2) Wenn wir immer noch keine E-Mail haben, versuchen wir die ID herauszulesen
+    let personId: number | undefined;
+
+    if (typeof personRef === "number") {
+      personId = personRef;
+    } else if (
+      personRef &&
+      typeof personRef === "object" &&
+      typeof personRef.value === "number"
+    ) {
+      // übliches Pipedrive-Format: { value: 123, name: "Anna Beispiel" }
+      personId = personRef.value;
+    }
+
+    // 3) Wenn es eine Personen-ID gibt, aber noch keine Email: Person nachladen
+    if (!email && personId) {
+      try {
+        const person = await getPerson(personId);
+        console.log("[WEBHOOK] Loaded person from API", person);
+
+        personName = person.name || personName;
+        leadFirstName =
+          person.first_name ||
+          leadFirstName ||
+          (person.name && person.name.split(" ")[0]);
+
+        if (person.email && person.email.length > 0) {
+          email = person.email[0].value;
+        } else if (person.primary_email) {
+          email = person.primary_email;
+        }
+      } catch (e) {
+        console.error("[WEBHOOK] Failed to load person", e);
+      }
+    }
+
+    // 4) Falls immer noch keine Mail: Abbrechen (wie bisher)
     if (!email) {
       console.error("[WEBHOOK] No email for deal", { dealId });
       return new Response("No email", { status: 200 });
     }
 
-    const leadFirstName: string | undefined =
-      person.first_name || (person.name && String(person.name).split(" ")[0]);
+    // leadFirstName fallback
+    if (!leadFirstName && personName) {
+      leadFirstName = personName.split(" ")[0];
+    }
 
     const orgNameRaw: string | null =
       current.org_name || current.org_id?.name || null;
+
+    console.log("[WEBHOOK] Lead data", {
+      email,
+      leadFirstName,
+      orgNameRaw,
+      webformTitle,
+    });
+
 
     console.log("[WEBHOOK] Lead data", {
       email,
