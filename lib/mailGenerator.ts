@@ -8,6 +8,28 @@ export type GeneratedMails = {
   third: string;
 };
 
+// Hilfsfunktion: zieht reines JSON aus einem Text, auch wenn ```json ... ``` drumherum ist
+function extractJson(text: string): string {
+  let t = text.trim();
+
+  // ggf. Codeblock-Wrapper entfernen (```json ... ```)
+  if (t.startsWith("```")) {
+    // erste Zeile (``` oder ```json) entfernen
+    t = t.replace(/^```[a-zA-Z0-9]*\s*/, "");
+    // letztes ``` entfernen
+    t = t.replace(/```$/, "").trim();
+  }
+
+  // Sicherheit: nur Inhalt zwischen erstem '{' und letztem '}' nehmen
+  const firstBrace = t.indexOf("{");
+  const lastBrace = t.lastIndexOf("}");
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    t = t.slice(firstBrace, lastBrace + 1);
+  }
+
+  return t;
+}
+
 export async function generateFollowupMails(params: {
   webformTitle: string;
   leadEmail: string;
@@ -20,6 +42,7 @@ export async function generateFollowupMails(params: {
 Du bist ein deutschsprachiger B2B-Sales-Profi.
 Du schreibst personalisierte Follow-up-E-Mails nach einer Webformular-Anfrage.
 Antwortformat: JSON mit "first", "second", "third".
+Gib NUR JSON zurück, KEINE Erklärtexte, KEINE Markdown-Codeblöcke.
 `.trim();
 
   const topicsText =
@@ -82,13 +105,17 @@ Gib NUR ein JSON-Objekt zurück mit den Keys "first", "second", "third".
     max_output_tokens: 1500,
   });
 
-  const text = response.output_text;
+  const rawText = response.output_text;
+  console.log("[MAILGEN] Raw OpenAI output:", rawText);
+
+  const jsonText = extractJson(rawText);
+  console.log("[MAILGEN] Extracted JSON:", jsonText);
 
   try {
-    const parsed = JSON.parse(text) as GeneratedMails;
+    const parsed = JSON.parse(jsonText) as GeneratedMails;
     return parsed;
   } catch (e) {
-    console.error("Followup JSON parse error", e, text);
+    console.error("[MAILGEN] Followup JSON parse error", e, jsonText);
     throw new Error("Failed to parse follow-up mails JSON");
   }
 }
