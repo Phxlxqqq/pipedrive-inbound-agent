@@ -51,50 +51,66 @@ Gib NUR JSON zurück, KEINE Erklärtexte, KEINE Markdown-Codeblöcke.
       : "keine spezifischen Themen bekannt";
 
   const userPrompt = `
-Kontext:
-- Lead-E-Mail: ${leadEmail}
-- Vorname (falls bekannt): ${leadFirstName ?? "unbekannt"}
-- Firma: ${companyIntro.companyName} (${
-    companyIntro.industry ?? "Branche unbekannt"
-  })
-- Kurzprofil: ${companyIntro.oneLiner}
-- Schwerpunktthemen: ${topicsText}
-- Webformular-Titel: "${webformTitle}"
+Schreibe bitte drei personalisierte Follow-up-E-Mails für einen Lead, der ein Whitepaper angefragt hat.
 
-Rahmen:
-- In der finalen E-Mail-Vorlage in Pipedrive werden automatisch
-  ein Kalender-Link und ein Whitepaper-Link eingefügt.
-- Du musst keine Links einfügen, sondern nur inhaltlich auf
-  das Whitepaper und die Möglichkeit eines kurzen Termins verweisen.
+Nutze unbedingt ALLE verfügbaren Informationen:
+
+Lead:
+- E-Mail: ${leadEmail}
+- Vorname: ${leadFirstName ?? "unbekannt"}
+
+Unternehmen:
+- Name: ${companyIntro.companyName}
+- Branche: ${companyIntro.industry ?? "unbekannt"}
+- Kurzprofil: ${companyIntro.oneLiner}
+- Wichtige Themen: ${topicsText}
+
+Anfrage:
+- Webform-Titel: "${webformTitle}"
 
 WICHTIG:
-- Schreibe so, dass die Texte gut in ein bestehendes Template passen,
-  in dem über oder unter dem Text Buttons/Links für Kalender und Whitepaper sind.
-- Keine Platzhalter wie {{CALENDAR_LINK}} oder {{WHITEPAPER_LINK}} verwenden.
-- Schreibe in der DU-Form, locker-professionell.
-- Jede Mail ca. 100–170 Wörter, 2–4 Absätze, gerne mit 1–2 Bullet-Points.
+Die Mails werden später in einem Pipedrive-Template verwendet, das schon Links zu Whitepaper & Kalender enthält.  
+Du DARFST KEINE Platzhalter oder Links einbauen.  
+Verweise nur inhaltlich darauf („im Whitepaper findest du…“).
 
-Drei E-Mails:
-1) "first":
-   - Direkt nach der Anfrage.
-   - Bedanken, kurz Bezug auf Firma/Branche und ggf. Themen.
-   - Erwähne das angeforderte Whitepaper und lade zu einem kurzen Termin ein.
+STILVORGABEN:
+- Du-Form, aber professionell-sympathisch.
+- Modern, locker, menschlich, nicht geschwollen.
+- Kein Corporate-Sprech, kein Blabla.
+- Kurze Sätze, klare Botschaften.
+- Jede Mail maximal 130–170 Wörter.
+- 2–3 Absätze.
+- Wenn sinnvoll: 1 kleine Bullet-Liste.
+- Jede Mail soll so wirken, als wäre sie wirklich individuell geschrieben.
 
-2) "second":
-   - 3–5 Tage später.
-   - Kurze Referenz auf die erste Mail.
-   - Ein konkreter Use Case, warum das Thema für ${
-     companyIntro.companyName
-   } spannend ist.
-   - Wieder auf Whitepaper und Termin Bezug nehmen.
+PERSONALISIERUNG:
+- Beziehe dich sicht- und spürbar auf die Branche oder Themen des Unternehmens.
+- Wenn Themen vorhanden sind: Verwende sie aktiv als Aufhänger.
+- Wenn Branche unbekannt: Fokussiere auf Herausforderungstypen, die oft zu ISAE 3402 passen (z. B. Nachweispflichten, Prozesse, Sicherheit).
+- Mache die Texte deutlich unterschiedlicher Tonalität (zweite Mail etwas konkreter, dritte Mail kürzer und sehr menschlich).
 
-3) "third":
-   - Ca. eine Woche später.
-   - Freundlicher, knapper Check-in ("danach melde ich mich nicht mehr aktiv").
-   - Angebot offen lassen, dass sich die Person jederzeit melden kann.
+INHALT:
+1) erste Mail („first“)
+   - Warm, sympathisch.
+   - Bezug auf Whitepaper-Anfrage + Unternehmenskontext.
+   - 1–2 Sätze, warum ISAE 3402 für dieses Unternehmen relevant sein könnte.
 
-Gib NUR ein JSON-Objekt zurück mit den Keys "first", "second", "third".
-`.trim();
+2) zweite Mail („second“)
+   - Bezug zur ersten Mail.
+   - Ein konkreter Nutzenpunkt oder ein Beispiel, abgestimmt auf Branche/Themen.
+   - Warum andere Firmen aus ähnlichen Bereichen davon profitieren.
+
+3) dritte Mail („third“)
+   - Sehr kurz, freundlich, menschlich.
+   - „Danach melde ich mich nicht mehr aktiv“.
+   - Angebot offen lassen.
+
+Gib NUR ein JSON zurück:
+{
+"first": "...",
+"second": "...",
+"third": "..."
+}`.trim();
 
   const response = await openai.responses.create({
     model: "gpt-4.1-mini",
