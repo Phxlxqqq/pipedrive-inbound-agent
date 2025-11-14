@@ -198,6 +198,7 @@ export default async function handler(req: Request): Promise<Response> {
       orgNameRaw,
     });
 
+
     console.log("[WEBHOOK] CompanyIntro", companyIntro);
 
     // 2) Follow-up-Mails generieren
