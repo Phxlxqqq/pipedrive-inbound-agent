@@ -61,7 +61,7 @@ export default async function handler(req: Request): Promise<Response> {
     const payload: any = await req.json();
     console.log("[WEBHOOK] Incoming payload:", JSON.stringify(payload));
 
-    const current =
+    const current: any =
       payload.current || payload.data || payload.deal || payload.meta?.current;
 
     if (!current) {
@@ -81,7 +81,7 @@ export default async function handler(req: Request): Promise<Response> {
     const webformTitle: string =
       current.title || current.subject || "Anfrage über Webformular";
 
-    // ✂️ Optional: Pipeline-Filter (nur wenn du filtern willst)
+    // Optional: Pipeline-Filter
     if (env.pipelineId && String(current.pipeline_id) !== env.pipelineId) {
       console.log("[WEBHOOK] Ignored (pipeline mismatch)", {
         dealPipeline: current.pipeline_id,
@@ -90,7 +90,7 @@ export default async function handler(req: Request): Promise<Response> {
       return new Response("Ignored (pipeline)", { status: 200 });
     }
 
-    // ✂️ Optional: Stage-Filter
+    // Optional: Stage-Filter
     if (env.stageId && String(current.stage_id) !== env.stageId) {
       console.log("[WEBHOOK] Ignored (stage mismatch)", {
         dealStage: current.stage_id,
@@ -99,11 +99,9 @@ export default async function handler(req: Request): Promise<Response> {
       return new Response("Ignored (stage)", { status: 200 });
     }
 
-    // ✂️ Optional: Produkt-Filter – falls du das über Titel/Produkt triggern willst
+    // Optional: Produkt-Filter – falls du das über Titel/Produkt triggern willst
     if (env.productTrigger) {
-      const productName = String(
-        current.product_name || current.title || ""
-      );
+      const productName = String(current.product_name || current.title || "");
       if (!productName.includes(env.productTrigger)) {
         console.log("[WEBHOOK] Ignored (product mismatch)", {
           productName,
@@ -115,11 +113,12 @@ export default async function handler(req: Request): Promise<Response> {
 
     // ---------- PERSON & EMAIL ROBUST ERMITTELN ----------
 
-    const personRef = current.person_id || current.person || null;
+    const personRef: any = current.person_id || current.person || null;
 
     let email: string | undefined;
     let leadFirstName: string | undefined;
     let personName: string | undefined;
+    let orgNameFromPerson: string | null = null;
 
     // 1) Falls im Webhook schon ein Person-Objekt steckt
     if (personRef && typeof personRef === "object") {
@@ -133,6 +132,14 @@ export default async function handler(req: Request): Promise<Response> {
         personRef.primary_email ||
         current.email ||
         current.person_email;
+
+      // Org-Name evtl. direkt am Person-Objekt
+      orgNameFromPerson =
+        personRef.org_name ||
+        (personRef.org_id && typeof personRef.org_id === "object"
+          ? personRef.org_id.name
+          : null) ||
+        null;
     }
 
     // 2) Personen-ID extrahieren
@@ -143,16 +150,16 @@ export default async function handler(req: Request): Promise<Response> {
     } else if (
       personRef &&
       typeof personRef === "object" &&
-      typeof (personRef as any).value === "number"
+      typeof personRef.value === "number"
     ) {
       // übliches Pipedrive-Format: { value: 123, name: "Anna Beispiel" }
-      personId = (personRef as any).value;
+      personId = personRef.value;
     }
 
     // 3) Wenn wir noch keine E-Mail haben, Person via API nachladen
     if (!email && personId) {
       try {
-        const person = await getPerson(personId);
+        const person: any = await getPerson(personId);
         console.log("[WEBHOOK] Loaded person from API", person);
 
         personName = person.name || personName;
@@ -166,6 +173,14 @@ export default async function handler(req: Request): Promise<Response> {
         } else if (person.primary_email) {
           email = person.primary_email;
         }
+
+        // Org-Name auch hier aus der Person ziehen
+        orgNameFromPerson =
+          person.org_name ||
+          (person.org_id && typeof person.org_id === "object"
+            ? person.org_id.name
+            : null) ||
+          orgNameFromPerson;
       } catch (e) {
         console.error("[WEBHOOK] Failed to load person", e);
       }
@@ -182,21 +197,19 @@ export default async function handler(req: Request): Promise<Response> {
       leadFirstName = personName.split(" ")[0];
     }
 
-    // orgNameRaw möglichst klug setzen: erst Deal, dann Org aus Person
+    // ---------- ORG-NAME ERMITTELN ----------
+
+    // 1. aus Deal
     let orgNameRaw: string | null =
       current.org_name ||
       (current.org_id && typeof current.org_id === "object"
         ? current.org_id.name
-        : null);
+        : null) ||
+      null;
 
-    // Falls im Deal nichts steht: versuchen, aus der geladenen Person zu holen
-    if (!orgNameRaw && typeof personRef === "object") {
-      const fromPersonOrgName =
-        (personRef as any).org_name ||
-        ((personRef as any).org_id && (personRef as any).org_id.name);
-      if (fromPersonOrgName) {
-        orgNameRaw = fromPersonOrgName;
-      }
+    // 2. Fallback: aus Person (wenn Deal nichts hatte)
+    if (!orgNameRaw && orgNameFromPerson) {
+      orgNameRaw = orgNameFromPerson;
     }
 
     console.log("[WEBHOOK] Lead data", {
@@ -211,8 +224,6 @@ export default async function handler(req: Request): Promise<Response> {
       email,
       orgNameRaw,
     });
-
-
 
     console.log("[WEBHOOK] CompanyIntro", companyIntro);
 
@@ -230,7 +241,7 @@ export default async function handler(req: Request): Promise<Response> {
       thirdLen: mails.third?.length,
     });
 
-    // 3) Enrichment-Summary bauen (neue Logik)
+    // 3) Enrichment-Summary bauen
     const enrichmentSummary = buildEnrichmentSummary(companyIntro);
     console.log("[WEBHOOK] Enrichment summary", enrichmentSummary);
 
