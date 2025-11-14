@@ -10,16 +10,103 @@ export const config = {
   runtime: "edge",
 };
 
+// --- Basic Spam-Helper ----------------------------------------------------
+
+// Sehr einfache Liste von Trashmail-Domains (kannst du später erweitern)
+// Behandelt sowohl klassische Wegwerf-Adressen als auch gängige Freemail-Anbieter als "nicht B2B"
+const TRASHMAIL_DOMAINS = [
+  // Klassische Wegwerf-/Temp-Mail-Domains
+  "mailinator.com",
+  "sharklasers.com",
+  "guerrillamail.com",
+  "10minutemail.com",
+  "yopmail.com",
+  "discard.email",
+  "temp-mail.org",
+  "tempmail.com",
+  "getnada.com",
+  "trashmail.com",
+  "dispostable.com",
+  "maildrop.cc",
+  "moakt.com",
+  "dropmail.me",
+
+  // Große Freemail-Provider (B2C)
+  "gmail.com",
+  "googlemail.com",
+  "hotmail.com",
+  "outlook.com",
+  "live.com",
+  "msn.com",
+  "yahoo.com",
+  "yahoo.de",
+  "icloud.com",
+  "me.com",
+  "aol.com",
+
+  // Deutsche Freemail-Provider
+  "gmx.de",
+  "gmx.net",
+  "web.de",
+  "t-online.de",
+  "freenet.de",
+  "mail.de",
+  "posteo.de",
+
+  // Privacy-/Secure-Mail (typischerweise nicht Unternehmensdomain)
+  "proton.me",
+  "protonmail.com",
+  "tutanota.com",
+];
+
+
+function getEmailDomain(email: string): string | null {
+  const atIndex = email.indexOf("@");
+  if (atIndex === -1) return null;
+  return email.slice(atIndex + 1).trim().toLowerCase();
+}
+
+function isTrashmailDomain(domain: string | null): boolean {
+  if (!domain) return false;
+  return TRASHMAIL_DOMAINS.some((d) => domain.endsWith(d));
+}
+
+function isSuspiciousName(name: string | undefined | null): boolean {
+  if (!name) return false;
+  const n = name.trim().toLowerCase();
+
+  if (!n) return true; // komplett leer
+
+  // Nur Zahlen → verdächtig
+  if (/^\d+$/.test(n)) return true;
+
+  // Sehr kurz
+  if (n.length <= 1) return true;
+
+  // Klassiker für Tests
+  const TEST_PATTERNS = ["test", "tester", "asdf", "qwerty", "xxx", "abc"];
+  if (TEST_PATTERNS.includes(n)) return true;
+
+  return false;
+}
+
 // Hilfsfunktion: baut ein sauberes, professionelles Enrichment-Summary
-function buildEnrichmentSummary(ci: CompanyIntro): string {
+function buildEnrichmentSummary(
+  ci: CompanyIntro,
+  language: LeadLanguage
+): string {
   const parts: string[] = [];
+
+  const isGerman = language === "de";
 
   // 1. Firmenname
   parts.push(ci.companyName);
 
-  // 2. Branche (falls vorhanden und nicht nur "unbekannt")
+  // 2. Branche / Industry
   if (ci.industry && ci.industry.toLowerCase() !== "unbekannt") {
-    parts.push(`Branche: ${ci.industry}`);
+    parts.push(
+      isGerman ? `Branche: ${ci.industry}` : `Industry: ${ci.industry}`
+    );
   }
 
   // 3. One-Liner (nur, wenn kein generischer Fallback)
@@ -27,18 +114,86 @@ function buildEnrichmentSummary(ci: CompanyIntro): string {
     parts.push(ci.oneLiner);
   }
 
-  // 4. Themen (falls vorhanden)
+  // 4. Themen / Topics
   if (ci.topics && ci.topics.length > 0) {
-    parts.push(`Themen: ${ci.topics.join(", ")}`);
+    parts.push(
+      isGerman
+        ? `Themen: ${ci.topics.join(", ")}`
+        : `Topics: ${ci.topics.join(", ")}`
+    );
   }
 
-  // 5. Fallback, wenn wir quasi nichts wissen
+  // 5. Fallback
   if (parts.length === 1) {
-    parts.push("Profil aktuell nur teilweise verfügbar — weitere Infos folgen.");
+    parts.push(
+      isGerman
+        ? "Profil aktuell nur teilweise verfügbar — weitere Infos folgen."
+        : "Profile currently only partially available — more details to follow."
+    );
   }
 
   return parts.join(" | ");
 }
+
+
+// Welche Sprachen unterstützen wir?
+type LeadLanguage = "de" | "en" | "nl" | "sv";
+
+// Produkt aus Titel extrahieren: alles vor " Lead"
+function detectProductFromTitle(title: string): string {
+  const idx = title.toLowerCase().indexOf(" lead");
+  if (idx > 0) {
+    return title.slice(0, idx).trim();
+  }
+  return title.trim();
+}
+
+// Sprache aus Titel + ggf. Domain ableiten
+function detectLanguageFromTitleAndEmail(
+  title: string,
+  email: string
+): LeadLanguage {
+  const t = title.toLowerCase();
+  const domain = email.split("@")[1]?.toLowerCase() || "";
+
+  // Land-Codes im Titel (mit/ohne Leerzeichen)
+  if (t.includes(" nl ") || t.endsWith(" nl") || t.includes(" niederlande")) {
+    return "nl";
+  }
+  if (
+    t.includes(" swe ") ||
+    t.endsWith(" swe") ||
+    t.includes(" schweden")
+  ) {
+    return "sv";
+  }
+  if (
+    t.includes(" uk ") ||
+    t.endsWith(" uk") ||
+    t.includes(" united kingdom")
+  ) {
+    return "en";
+  }
+  if (
+    t.includes(" de ") ||
+    t.endsWith(" de") ||
+    t.includes(" ger ") ||
+    t.endsWith(" ger") ||
+    t.includes(" deutschland")
+  ) {
+    return "de";
+  }
+
+  // Fallback über Domain
+  if (domain.endsWith(".nl")) return "nl";
+  if (domain.endsWith(".se")) return "sv";
+  if (domain.endsWith(".de")) return "de";
+  if (domain.endsWith(".co.uk") || domain.endsWith(".uk")) return "en";
+
+  // Default: Deutsch
+  return "de";
+}
+
 
 export default async function handler(req: Request): Promise<Response> {
   console.log("[WEBHOOK] Hit", req.method, req.url);
@@ -197,6 +352,26 @@ export default async function handler(req: Request): Promise<Response> {
       leadFirstName = personName.split(" ")[0];
     }
 
+    // ---------- BASIC SPAM CHECK ----------
+
+    const domain = getEmailDomain(email);
+    const suspiciousName = isSuspiciousName(leadFirstName);
+
+    if (isTrashmailDomain(domain) || suspiciousName) {
+      console.log("[SPAM] Lead blocked", {
+        dealId,
+        email,
+        domain,
+        leadFirstName,
+        reason: {
+          trashmail: isTrashmailDomain(domain),
+          suspiciousName,
+        },
+      });
+      // Wir antworten mit 200, damit Pipedrive den Webhook nicht retried
+      return new Response("Spam ignored", { status: 200 });
+    }
+
     // ---------- ORG-NAME ERMITTELN ----------
 
     // 1. aus Deal
@@ -218,6 +393,12 @@ export default async function handler(req: Request): Promise<Response> {
       orgNameRaw,
       webformTitle,
     });
+
+    const product = detectProductFromTitle(webformTitle);
+    const language = detectLanguageFromTitleAndEmail(webformTitle, email);
+
+    console.log("[WEBHOOK] Routing lead", { product, language, webformTitle });
+
 
     // 1) Company-Enrichment über Brave
     const companyIntro = await buildCompanyIntro({
@@ -242,7 +423,7 @@ export default async function handler(req: Request): Promise<Response> {
     });
 
     // 3) Enrichment-Summary bauen
-    const enrichmentSummary = buildEnrichmentSummary(companyIntro);
+    const enrichmentSummary = buildEnrichmentSummary(companyIntro, language);
     console.log("[WEBHOOK] Enrichment summary", enrichmentSummary);
 
     // 4) Deal-Felder schreiben

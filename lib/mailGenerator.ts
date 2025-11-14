@@ -30,13 +30,35 @@ function extractJson(text: string): string {
   return t;
 }
 
+export type LeadLanguage = "de" | "en" | "nl" | "sv";
+
 export async function generateFollowupMails(params: {
   webformTitle: string;
   leadEmail: string;
   leadFirstName?: string;
   companyIntro: CompanyIntro;
+  product: string;
+  language: LeadLanguage;
 }): Promise<GeneratedMails> {
-  const { companyIntro, webformTitle, leadEmail, leadFirstName } = params;
+  const {
+    companyIntro,
+    webformTitle,
+    leadEmail,
+    leadFirstName,
+    product,
+    language,
+  } = params;
+
+  
+  const languageInstruction =
+  language === "de"
+    ? "Schreibe die E-Mails auf DEUTSCH."
+    : language === "nl"
+    ? "Schreibe die E-Mails auf NIEDERLÄNDISCH."
+    : language === "sv"
+    ? "Schreibe die E-Mails auf SCHWEDISCH."
+    : "Schreibe die E-Mails auf ENGLISCH.";
+
 
   const systemPrompt = `
 Du bist ein deutschsprachiger B2B-Sales-Profi.
@@ -68,11 +90,13 @@ Unternehmen:
 Anfrage:
 - Webform-Titel: "${webformTitle}"
 
-WICHTIG:
+Rahmen:
+- ${languageInstruction}
 Die Mails werden später in einem Pipedrive-Template verwendet, das schon Links zu Whitepaper & Kalender enthält.  
 Du DARFST KEINE Platzhalter oder Links einbauen.  
 Verweise nur inhaltlich darauf („im Whitepaper findest du…“).
 
+WICHTIG:
 STILVORGABEN:
 - Du-Form, aber professionell-sympathisch.
 - Modern, locker, menschlich, nicht geschwollen.
