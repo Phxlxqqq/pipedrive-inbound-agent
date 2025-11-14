@@ -182,8 +182,22 @@ export default async function handler(req: Request): Promise<Response> {
       leadFirstName = personName.split(" ")[0];
     }
 
-    const orgNameRaw: string | null =
-      current.org_name || current.org_id?.name || null;
+    // orgNameRaw möglichst klug setzen: erst Deal, dann Org aus Person
+    let orgNameRaw: string | null =
+      current.org_name ||
+      (current.org_id && typeof current.org_id === "object"
+        ? current.org_id.name
+        : null);
+
+    // Falls im Deal nichts steht: versuchen, aus der geladenen Person zu holen
+    if (!orgNameRaw && typeof personRef === "object") {
+      const fromPersonOrgName =
+        (personRef as any).org_name ||
+        ((personRef as any).org_id && (personRef as any).org_id.name);
+      if (fromPersonOrgName) {
+        orgNameRaw = fromPersonOrgName;
+      }
+    }
 
     console.log("[WEBHOOK] Lead data", {
       email,
@@ -197,6 +211,7 @@ export default async function handler(req: Request): Promise<Response> {
       email,
       orgNameRaw,
     });
+
 
 
     console.log("[WEBHOOK] CompanyIntro", companyIntro);
