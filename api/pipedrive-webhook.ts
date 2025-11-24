@@ -59,7 +59,6 @@ const TRASHMAIL_DOMAINS = [
   "tutanota.com",
 ];
 
-
 function getEmailDomain(email: string): string | null {
   const atIndex = email.indexOf("@");
   if (atIndex === -1) return null;
@@ -91,6 +90,8 @@ function isSuspiciousName(name: string | undefined | null): boolean {
 }
 
 // Hilfsfunktion: baut ein sauberes, professionelles Enrichment-Summary
+type LeadLanguage = "de" | "en" | "nl" | "sv";
+
 function buildEnrichmentSummary(
   ci: CompanyIntro,
   language: LeadLanguage
@@ -135,10 +136,6 @@ function buildEnrichmentSummary(
   return parts.join(" | ");
 }
 
-
-// Welche Sprachen unterstützen wir?
-type LeadLanguage = "de" | "en" | "nl" | "sv";
-
 // Produkt aus Titel extrahieren: alles vor " Lead"
 function detectProductFromTitle(title: string): string {
   const idx = title.toLowerCase().indexOf(" lead");
@@ -160,11 +157,7 @@ function detectLanguageFromTitleAndEmail(
   if (t.includes(" nl ") || t.endsWith(" nl") || t.includes(" niederlande")) {
     return "nl";
   }
-  if (
-    t.includes(" swe ") ||
-    t.endsWith(" swe") ||
-    t.includes(" schweden")
-  ) {
+  if (t.includes(" swe ") || t.endsWith(" swe") || t.includes(" schweden")) {
     return "sv";
   }
   if (
@@ -193,7 +186,6 @@ function detectLanguageFromTitleAndEmail(
   // Default: Deutsch
   return "de";
 }
-
 
 export default async function handler(req: Request): Promise<Response> {
   console.log("[WEBHOOK] Hit", req.method, req.url);
@@ -399,7 +391,6 @@ export default async function handler(req: Request): Promise<Response> {
 
     console.log("[WEBHOOK] Routing lead", { product, language, webformTitle });
 
-
     // 1) Company-Enrichment über Brave
     const companyIntro = await buildCompanyIntro({
       email,
@@ -414,6 +405,8 @@ export default async function handler(req: Request): Promise<Response> {
       leadEmail: email,
       leadFirstName,
       companyIntro,
+      product,
+      language,
     });
 
     console.log("[WEBHOOK] Generated mails", {
