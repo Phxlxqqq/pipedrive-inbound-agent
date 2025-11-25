@@ -329,6 +329,7 @@ STILVORGABEN:
 - 2–3 Absätze.
 - Wenn sinnvoll: 1 kleine Bullet-Liste.
 - Jede Mail soll so wirken, als wäre sie wirklich individuell geschrieben.
+- Keine Grußformeln
 
 PERSONALISIERUNG:
 - Nutze KURZPROFIL und THEMEN als wichtigste Basis für die Personalisierung.
@@ -341,7 +342,8 @@ PERSONALISIERUNG:
 BETREFFZEILEN:
 - Erstelle für jede der drei E-Mails auch einen passenden Betreff.
 - Der Betreff soll kurz sein (max. 6–9 Wörter).
-- Wenn ein Vorname vorhanden ist, darfst du ihn im Betreff verwenden.
+- VERWENDE NIEMALS den Vornamen im Betreff – auch dann nicht, wenn er bekannt ist.
+- Verwende im Betreff keine direkte Anrede ("Hallo", "Hi" etc.).
 - Betreff soll klar zum Produkt/Thema ${productContext.label} passen.
 - Kein Spam-Stil ("free", "urgent", "limited offer", "!!!" etc.).
 - Modern, natürlich klingend, nicht reißerisch.
