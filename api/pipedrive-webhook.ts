@@ -266,17 +266,7 @@ export default async function handler(req: Request): Promise<Response> {
       return new Response("Ignored (stage)", { status: 200 });
     }
 
-    // Optional: Produkt-Filter – falls du das über Titel/Produkt triggern willst
-    if (env.productTrigger) {
-      const productName = String(current.product_name || current.title || "");
-      if (!productName.includes(env.productTrigger)) {
-        console.log("[WEBHOOK] Ignored (product mismatch)", {
-          productName,
-          trigger: env.productTrigger,
-        });
-        return new Response("Ignored (product)", { status: 200 });
-      }
-    }
+
 
     // ---------- PERSON & EMAIL ROBUST ERMITTELN ----------
 
