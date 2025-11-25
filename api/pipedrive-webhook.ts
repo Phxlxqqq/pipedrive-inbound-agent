@@ -108,6 +108,10 @@ function sanitizeFirstName(
   return n;
 }
 
+// Welche Sprachen unterstützen wir?
+type LeadLanguage = "de" | "en" | "nl" | "sv";
+
+// Hilfsfunktion: baut ein sauberes, professionelles Enrichment-Summary
 function buildEnrichmentSummary(
   ci: CompanyIntro,
   language: LeadLanguage
@@ -151,10 +155,6 @@ function buildEnrichmentSummary(
 
   return parts.join(" | ");
 }
-
-// Welche Sprachen unterstützen wir?
-// (muss zu lib/mailGenerator.ts passen)
-type LeadLanguage = "de" | "en" | "nl" | "sv";
 
 // Produkt aus Titel extrahieren: alles vor " Lead"
 function detectProductFromTitle(title: string): string {
@@ -266,6 +266,17 @@ export default async function handler(req: Request): Promise<Response> {
       return new Response("Ignored (stage)", { status: 200 });
     }
 
+    // Optional: Produkt-Filter – falls du das über Titel/Produkt triggern willst
+    // if (env.productTrigger) {
+    //   const productName = String(current.product_name || current.title || "");
+    //   if (!productName.includes(env.productTrigger)) {
+    //     console.log("[WEBHOOK] Ignored (product mismatch)", {
+    //       productName,
+    //       trigger: env.productTrigger,
+    //     });
+    //     return new Response("Ignored (product)", { status: 200 });
+    //   }
+    // }
 
     // ---------- PERSON & EMAIL ROBUST ERMITTELN ----------
 
@@ -415,7 +426,7 @@ export default async function handler(req: Request): Promise<Response> {
 
     console.log("[WEBHOOK] CompanyIntro", companyIntro);
 
-    // 2) Follow-up-Mails generieren
+    // 2) Follow-up-Mails generieren (inkl. Subjects)
     const mails = await generateFollowupMails({
       webformTitle,
       leadEmail: email,
@@ -429,6 +440,9 @@ export default async function handler(req: Request): Promise<Response> {
       firstLen: mails.first?.length,
       secondLen: mails.second?.length,
       thirdLen: mails.third?.length,
+      firstSubject: mails.first_subject,
+      secondSubject: mails.second_subject,
+      thirdSubject: mails.third_subject,
     });
 
     // 3) Enrichment-Summary bauen
@@ -442,6 +456,10 @@ export default async function handler(req: Request): Promise<Response> {
       [env.fields.emailIntro1]: mails.first,
       [env.fields.emailIntro2]: mails.second,
       [env.fields.emailIntro3]: mails.third,
+      // neue Subject-Felder:
+      [env.fields.emailSubject1]: mails.first_subject,
+      [env.fields.emailSubject2]: mails.second_subject,
+      [env.fields.emailSubject3]: mails.third_subject,
     };
 
     console.log("[WEBHOOK] Update payload", updatePayload);

@@ -21,6 +21,10 @@ export const env = {
   stageId: process.env.STAGE_ID || null,
   productTrigger: process.env.PRODUCT_TRIGGER || null,
   fields: {
+    emailSubject1: required("PD_FIELD_EMAIL_SUBJECT_1"),
+    emailSubject2: required("PD_FIELD_EMAIL_SUBJECT_2"),
+    emailSubject3: required("PD_FIELD_EMAIL_SUBJECT_3"),
+    
     emailIntro1: required("FIELD_EMAIL_INTRO_1"),
     emailIntro2: required("FIELD_EMAIL_INTRO_2"),
     emailIntro3: required("FIELD_EMAIL_INTRO_3"),
