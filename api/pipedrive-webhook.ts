@@ -89,8 +89,24 @@ function isSuspiciousName(name: string | undefined | null): boolean {
   return false;
 }
 
-// Hilfsfunktion: baut ein sauberes, professionelles Enrichment-Summary
-type LeadLanguage = "de" | "en" | "nl" | "sv";
+// Vorname bereinigen: keine E-Mail, keine reinen Sonderzeichen, etc.
+function sanitizeFirstName(
+  name: string | undefined | null
+): string | undefined {
+  if (!name) return undefined;
+
+  const n = String(name).trim();
+  if (!n) return undefined;
+  if (n.length < 2) return undefined;
+
+  // Wenn es wie eine E-Mail aussieht → nicht als Vorname verwenden
+  if (n.includes("@")) return undefined;
+
+  // Wenn gar keine Buchstaben drin sind → auch nicht verwenden
+  if (!/[a-zA-ZäöüÄÖÜ]/.test(n)) return undefined;
+
+  return n;
+}
 
 function buildEnrichmentSummary(
   ci: CompanyIntro,
@@ -135,6 +151,10 @@ function buildEnrichmentSummary(
 
   return parts.join(" | ");
 }
+
+// Welche Sprachen unterstützen wir?
+// (muss zu lib/mailGenerator.ts passen)
+type LeadLanguage = "de" | "en" | "nl" | "sv";
 
 // Produkt aus Titel extrahieren: alles vor " Lead"
 function detectProductFromTitle(title: string): string {
@@ -247,16 +267,16 @@ export default async function handler(req: Request): Promise<Response> {
     }
 
     // Optional: Produkt-Filter – falls du das über Titel/Produkt triggern willst
-    // if (env.productTrigger) {
-    //   const productName = String(current.product_name || current.title || "");
-    //   if (!productName.includes(env.productTrigger)) {
-    //     console.log("[WEBHOOK] Ignored (product mismatch)", {
-    //       productName,
-    //       trigger: env.productTrigger,
-    //     });
-    //     return new Response("Ignored (product)", { status: 200 });
-    //   }
-    // }
+    if (env.productTrigger) {
+      const productName = String(current.product_name || current.title || "");
+      if (!productName.includes(env.productTrigger)) {
+        console.log("[WEBHOOK] Ignored (product mismatch)", {
+          productName,
+          trigger: env.productTrigger,
+        });
+        return new Response("Ignored (product)", { status: 200 });
+      }
+    }
 
     // ---------- PERSON & EMAIL ROBUST ERMITTELN ----------
 
@@ -270,9 +290,12 @@ export default async function handler(req: Request): Promise<Response> {
     // 1) Falls im Webhook schon ein Person-Objekt steckt
     if (personRef && typeof personRef === "object") {
       personName = personRef.name;
-      leadFirstName =
+
+      const rawFirstNameFromPerson =
         personRef.first_name ||
         (personRef.name && String(personRef.name).split(" ")[0]);
+
+      leadFirstName = sanitizeFirstName(rawFirstNameFromPerson);
 
       email =
         personRef.email?.[0]?.value ||
@@ -310,10 +333,14 @@ export default async function handler(req: Request): Promise<Response> {
         console.log("[WEBHOOK] Loaded person from API", person);
 
         personName = person.name || personName;
-        leadFirstName =
+
+        const rawFirstNameFromApi =
           person.first_name ||
           leadFirstName ||
           (person.name && person.name.split(" ")[0]);
+
+        leadFirstName =
+          sanitizeFirstName(rawFirstNameFromApi) || leadFirstName;
 
         if (person.email && person.email.length > 0) {
           email = person.email[0].value;
@@ -341,7 +368,7 @@ export default async function handler(req: Request): Promise<Response> {
 
     // leadFirstName Fallback
     if (!leadFirstName && personName) {
-      leadFirstName = personName.split(" ")[0];
+      leadFirstName = sanitizeFirstName(personName.split(" ")[0]);
     }
 
     // ---------- BASIC SPAM CHECK ----------

@@ -271,6 +271,8 @@ Gib NUR JSON zurück, KEINE Erklärtexte, KEINE Markdown-Codeblöcke.
       ? companyIntro.topics.join(", ")
       : "keine spezifischen Themen bekannt";
 
+  const industryRaw = companyIntro.industry ?? "unbekannt";
+
   const webformContext = getWebformContext(webformTitle, language);
   const productContext = getProductContext(product, language);
 
@@ -284,12 +286,12 @@ Nutze unbedingt ALLE verfügbaren Informationen:
 
 Lead:
 - E-Mail: ${leadEmail}
-- Vorname: ${leadFirstName ?? "unbekannt"}
+- Vorname: ${leadFirstName ?? "unbekannt"} (verwende diesen Vornamen in der Anrede; nutze niemals die E-Mail-Adresse als Name)
 
 Unternehmen:
 - Name: ${companyIntro.companyName}
-- Branche: ${companyIntro.industry ?? "unbekannt"}
-- Kurzprofil: ${companyIntro.oneLiner}
+- Kurzprofil (am wichtigsten, bitte als Hauptquelle nutzen): ${companyIntro.oneLiner}
+- Branche (nur als grober Hinweis, kann ungenau sein): ${industryRaw}
 - Wichtige Themen: ${topicsText}
 
 Anfrage:
@@ -303,6 +305,16 @@ Die Mails werden später in einem Pipedrive-Template verwendet, das bereits die 
 Du DARFST KEINE Platzhalter oder Links einbauen.
 Verweise nur inhaltlich darauf (z. B. „in den Unterlagen findest du…“ oder „im Gespräch können wir…“).
 
+ANREDE:
+- Wenn ein Vorname vorhanden ist, beginne jede E-Mail mit einer Anrede:
+  - Deutsch: "Hallo <Vorname>,"
+  - Englisch: "Hi <First name>,"
+  - Niederländisch/Schwedisch: passende moderne Du-Anrede in der jeweiligen Sprache.
+- Wenn KEIN sinnvoller Vorname vorhanden ist, nutze eine neutrale Anrede:
+  - Deutsch: "Hallo,"
+  - Englisch: "Hi there,"
+- Verwende NIEMALS die E-Mail-Adresse in der Anrede.
+
 WICHTIG:
 STILVORGABEN:
 - Du-Form, aber professionell-sympathisch.
@@ -315,9 +327,11 @@ STILVORGABEN:
 - Jede Mail soll so wirken, als wäre sie wirklich individuell geschrieben.
 
 PERSONALISIERUNG:
-- Beziehe dich sicht- und spürbar auf die Branche oder Themen des Unternehmens.
-- Nutze das Produkt/den Standard (${productContext.label}) aktiv als Aufhänger.
-- Wenn Branche unbekannt: Fokussiere auf typische Herausforderungen (Nachweispflichten, Prozesse, Sicherheit, Vertrauen von Kunden).
+- Nutze KURZPROFIL und THEMEN als wichtigste Basis für die Personalisierung.
+- Die Branche ist nur ein grober Hinweis und kann ungenau sein. Wenn Branche und Kurzprofil nicht wirklich zusammenpassen, IGNORIERE die Branche und orientiere dich nur am Kurzprofil und den Themen.
+- Wenn Themen vorhanden sind: Verwende sie aktiv als Aufhänger.
+- Wenn keine klaren Themen erkennbar sind: Fokussiere auf typische Herausforderungen rund um ${productContext.label} (z. B. Nachweispflichten, Prozesse, Sicherheit, Vertrauen von Kunden).
+- Du darfst die Branche in der Mail auch komplett weglassen, wenn sie nicht eindeutig passt.
 - Mache die Texte deutlich unterschiedlicher Tonalität (zweite Mail etwas konkreter, dritte Mail kürzer und sehr menschlich).
 
 INHALT:
