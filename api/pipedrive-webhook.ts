@@ -267,7 +267,6 @@ export default async function handler(req: Request): Promise<Response> {
     }
 
 
-
     // ---------- PERSON & EMAIL ROBUST ERMITTELN ----------
 
     const personRef: any = current.person_id || current.person || null;
