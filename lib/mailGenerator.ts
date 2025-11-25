@@ -302,6 +302,7 @@ Anfrage:
 Rahmen:
 - ${languageInstruction}
 Die Mails werden später in einem Pipedrive-Template verwendet, das bereits die passenden Links (z. B. zu Unterlagen, Whitepaper oder Terminen) enthält.
+Zielgruppe sind Entscheider. Vor allem CISO's, IT-Leiter, Compliance Officer und Geschäftsführer
 Du DARFST KEINE Platzhalter oder Links einbauen.
 Verweise nur inhaltlich darauf (z. B. „in den Unterlagen findest du…“ oder „im Gespräch können wir…“).
 
@@ -325,6 +326,7 @@ STILVORGABEN:
 - 2–3 Absätze.
 - Wenn sinnvoll: 1 kleine Bullet-Liste.
 - Jede Mail soll so wirken, als wäre sie wirklich individuell geschrieben.
+- Verwende keine stilistischen Gedankenstriche oder GPT-typischen Einschub-Bindestriche. Normale, grammatikalisch notwendige Bindestriche sind erlaubt, aber keine dekorativen oder satzverlängernden Striche 
 
 PERSONALISIERUNG:
 - Nutze KURZPROFIL und THEMEN als wichtigste Basis für die Personalisierung.
@@ -340,16 +342,31 @@ INHALT:
    - Deutlicher Bezug auf ${webformContext.shortLabel} und die Anfrage zu ${productContext.label} sowie den Unternehmenskontext.
    - 1–2 Sätze dazu, warum ${productContext.label} für dieses Unternehmen relevant sein könnte:
      ${productContext.relevanceSentence}
+   - Ziel: Relevanz aufzeigen, leichtes Momentum erzeugen
 
 2) zweite Mail („second“)
    - Bezug zur ersten Mail.
    - Ein konkreter Nutzenpunkt oder Beispiel, abgestimmt auf Branche/Themen.
    - Warum andere Firmen aus ähnlichen Bereichen von ${productContext.label} profitieren.
+   - fachlich, beratend, differenziert 
+   - kein Dank 
+   - direkter Einstieg mit Bezug zu Rolle und Thema 
+   - ein klarer, relevanter Pain Point (für die Rolle/Inhalt des Whitepapers passend) 
+   - ein Satz konkreter Mehrwert (Mini-Case, Best Practice oder Beobachtung) 
+   - deutlicher Unterschied zu Mail 1: mehr Tiefe, weniger höflicher Einstieg 
+
+  Ziel: Konkret werden, Bezug zur Praxis im Unternehmen herstellen 
 
 3) dritte Mail („third“)
    - Sehr kurz, freundlich, menschlich.
    - „Danach melde ich mich nicht mehr aktiv“.
    - Angebot offen lassen.
+   - ein aktueller Impuls (Trend, Regulierung, Marktbewegung) 
+   - ein Satz personalisiert auf Branche/Rolle 
+   - klarer, höflicher Abschluss-CTA („falls ein späterer Austausch sinnvoll ist …“) 
+   - beendet die Sequenz wertschätzend und offen 
+   - keine Wiederholung von Inhalt aus Mail 1 oder 2 
+   Ziel: Dringlichkeit über Risiko, nicht über Sales 
 
 Gib NUR ein JSON zurück:
 {
