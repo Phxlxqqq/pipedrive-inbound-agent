@@ -451,11 +451,16 @@ Die Mails werden später in einem Pipedrive-Template verwendet, das bereits die 
 Du DARFST KEINE Platzhalter oder Links einbauen.
 Verweise nur inhaltlich darauf (z. B. „in den Unterlagen findest du…“ oder „im Gespräch können wir…“).
 
+PERSPEKTIVE:
+- Schreibe aus Sicht des Anbieters, der das Webformular bereitstellt (also „wir“ schreiben an den Lead).
+- Verwende Formulierungen wie „unser Webformular“ oder neutral „das Webformular auf unserer Website“.
+- Verwende NICHT „euer Webformular“ oder Formulierungen, die so klingen, als würde der Lead sich selbst anschreiben.
+
 ANREDE:
 - Wenn ein Vorname vorhanden ist, beginne jede E-Mail mit einer Anrede:
   - Deutsch: "Hallo <Vorname>,"
   - Englisch: "Hi <First name>,"
-  - Niederländisch/Schwedisch: passende moderne Du-Anrede in der jeweiligen Sprache.
+  - Niederländisch/Schwedisch: passende moderne Sie-Anrede in der jeweiligen Sprache.
 - Wenn KEIN sinnvoller Vorname vorhanden ist, nutze eine neutrale Anrede:
   - Deutsch: "Hallo,"
   - Englisch: "Hi there,"
@@ -463,15 +468,26 @@ ANREDE:
 
 WICHTIG:
 STILVORGABEN:
-- Du-Form, aber professionell-sympathisch.
-- Modern, locker, menschlich, nicht geschwollen.
+- Im Deutschen immer SIE-Form verwenden ("Sie", "Ihr", "Ihre" etc.) und diese Pronomen großschreiben.
+- In anderen Sprachen eine professionelle, respektvolle Ansprache verwenden.
+- Professionell-sympathisch, modern, locker, aber klar.
 - Kein Corporate-Sprech, kein Blabla.
 - Kurze Sätze, klare Botschaften.
 - Jede Mail maximal 130–170 Wörter.
 - 2–3 Absätze.
 - Wenn sinnvoll: 1 kleine Bullet-Liste.
 - Jede Mail soll so wirken, als wäre sie wirklich individuell geschrieben.
-- Keine Grußformeln
+- Keine Grußformeln (die Signatur wird im Template ergänzt).
+
+SPAM-VERMEIDUNG:
+- Formuliere Betreffzeilen und Inhalte so, dass sie möglichst nicht im Spam landen.
+- Vermeide:
+  - reißerische Sprache ("jetzt zuschlagen", "nur heute", "letzte Chance", "unglaubliches Angebot")
+  - komplett GROSSGESCHRIEBENE Wörter
+  - mehrere Ausrufezeichen ("!!", "!!!")
+  - übertriebene Dringlichkeit oder künstliche Verknappung.
+- Betreff und Inhalt sollen ehrlich, sachlich und vertrauenswürdig wirken.
+- Verwende nur dezente Emojis oder lasse Emojis komplett weg.
 
 PERSONALISIERUNG:
 - Nutze KURZPROFIL und THEMEN als wichtigste Basis für die Personalisierung.
