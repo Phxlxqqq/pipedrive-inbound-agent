@@ -131,15 +131,23 @@ function getWebformContext(
 /**
  * Produktlogik: ISAE 3402, BSI C5, SOC 1, SOC 2 …
  */
-type WebProduct = "isae3402" | "bsi_c5" | "soc1" | "soc2" | "other";
+type WebProduct = "isae3402" | "bsi_c5" | "soc1" | "soc2" | "isae3000" | "ps951" | "grc_soc2" | "iso27001" | "iso9001" | "nis2" | "grc_c5" | "dora" | "other";
 
 function normalizeProduct(product: string): WebProduct {
   const p = product.toLowerCase().replace(/\s+/g, "");
 
-  if (p.includes("isae3402") || p.includes("isae-3402")) return "isae3402";
-  if (p.includes("bsic5") || p.includes("bsi-c5")) return "bsi_c5";
-  if (p.includes("soc1") || p.includes("soc-1")) return "soc1";
-  if (p.includes("soc2") || p.includes("soc-2")) return "soc2";
+  if (p.includes("isae3402") || p.includes("isae-3402") || p.includes("isae 3402")) return "isae3402";
+  if (p.includes("bsic5") || p.includes("bsi-c5") || p.includes("bsi c5")) return "bsi_c5";
+  if (p.includes("soc1") || p.includes("soc-1") || p.includes("soc 1")) return "soc1";
+  if (p.includes("soc2") || p.includes("soc-2") || p.includes("soc 2")) return "soc2";
+  if (p.includes("isae3000") || p.includes("isae-3000") || p.includes("isae 3000")) return "isae3000";
+  if (p.includes("ps951") || p.includes("ps-951") || p.includes("ps 951")) return "ps951";
+  if (p.includes("grc_essentials_soc_2") || p.includes("grc essentials soc 2") || p.includes("grc essentials soc2")) return "grc_soc2";
+  if (p.includes("iso27001") || p.includes("iso 27001") || p.includes("iso-27001")) return "iso27001";
+  if (p.includes ("iso9001") || p.includes ("iso-9001") || p.includes ("iso 9001")) return "iso9001";
+  if (p.includes ("nis2") || p.includes ("nis 2") || p.includes ("nis-2")) return "nis2";
+  if (p.includes ("grc_essentials_bsi_c5") || p.includes("grc essentials bsi c5") || p.includes("grc essentials bsic5")) return "grc_c5";
+  if (p.includes("dora")) return "dora";
 
   return "other";
 }
@@ -165,6 +173,13 @@ function getProductContext(
           relevanceSentence:
             "ISAE 3402 ist besonders relevant, wenn ihr Prozesse und Kontrollen gegenüber Kunden oder Prüfern transparent nachweisen müsst, z. B. als Dienstleister oder Outsourcing-Partner.",
         };
+      case "isae3000":
+        return {
+          label: "ISAE 3000",
+          requestSentence: `Der Lead hat über das Webformular Informationsmaterial zu ISAE 3000 angefragt.`,
+          relevanceSentence:
+            "SOC 2 ist relevant, wenn ihr Services mit hohen Anforderungen an Sicherheit, Verfügbarkeit oder Datenschutz bietet und dies gegenüber Kunden strukturiert belegen wollt.",
+        };
       case "bsi_c5":
         return {
           label: "BSI C5",
@@ -186,6 +201,69 @@ function getProductContext(
           relevanceSentence:
             "SOC 2 ist relevant, wenn ihr Services mit hohen Anforderungen an Sicherheit, Verfügbarkeit oder Datenschutz bietet und dies gegenüber Kunden strukturiert belegen wollt.",
         };
+      case "isae3000":
+        return {
+          label: "ISAE 3000",
+          requestSentence: `Der Lead hat über das Webformular Informationsmaterial zu ISAE 3000 angefragt.`,
+          relevanceSentence:
+            "ISAE 3000 ist wichtig, wenn ihr Nicht-Finanzprozesse nachweisen müsst – z. B. Datenschutz, Informationssicherheit oder Compliance –, und dafür eine unabhängige Prüfung benötigt.",
+        };
+
+      case "ps951":
+        return {
+          label: "PS 951",
+          requestSentence: `Der Lead hat über das Webformular Informationsmaterial zu PS 951 angefragt.`,
+          relevanceSentence:
+            "PS 951 ist besonders relevant für Dienstleister, deren Leistungen unter ein internes Kontrollsystem fallen und deren Prozesse sicher und prüfbar gestaltet sein müssen.",
+        };
+
+      case "grc_soc2":
+        return {
+          label: "GRC Essentials SOC 2",
+          requestSentence: `Der Lead hat über das Webformular Informationsmaterial zu GRC Essentials SOC 2 angefragt.`,
+          relevanceSentence:
+            "GRC Essentials SOC 2 unterstützt euch dabei, die Anforderungen eines SOC-2-Audits strukturiert vorzubereiten – inklusive Risikomanagement, Controls und Dokumentation.",
+        };
+
+      case "iso27001":
+        return {
+          label: "ISO 27001",
+          requestSentence: `Der Lead hat über das Webformular Informationsmaterial zu ISO 27001 angefragt.`,
+          relevanceSentence:
+            "ISO 27001 ist relevant, wenn ihr ein Informationssicherheitsmanagementsystem (ISMS) aufbauen oder zertifizieren lassen möchtet, um Sicherheit und Compliance nachzuweisen.",
+        };
+
+      case "iso9001":
+        return {
+          label: "ISO 9001",
+          requestSentence: `Der Lead hat über das Webformular Informationsmaterial zu ISO 9001 angefragt.`,
+          relevanceSentence:
+            "ISO 9001 ist besonders wichtig, wenn ihr ein wirksames Qualitätsmanagementsystem benötigt, um Prozesse konsistent, effizient und kundenzentriert zu gestalten.",
+        };
+
+      case "nis2":
+        return {
+          label: "NIS 2",
+          requestSentence: `Der Lead hat über das Webformular Informationsmaterial zu NIS 2 angefragt.`,
+          relevanceSentence:
+            "NIS 2 ist relevant, wenn ihr kritische oder wichtige Dienstleistungen anbietet und neue Anforderungen an Sicherheit, Risikomanagement und Meldepflichten erfüllen müsst.",
+        };
+
+      case "grc_c5":
+        return {
+          label: "GRC Essentials BSI C5",
+          requestSentence: `Der Lead hat über das Webformular Informationsmaterial zu GRC Essentials BSI C5 angefragt.`,
+          relevanceSentence:
+            "GRC Essentials BSI C5 unterstützt euch dabei, die Anforderungen des BSI-C5-Standard effizient umzusetzen – inklusive Controls, Dokumentation und Auditvorbereitung.",
+        };
+
+      case "dora":
+        return {
+          label: "DORA",
+          requestSentence: `Der Lead hat über das Webformular Informationsmaterial zu DORA angefragt.`,
+          relevanceSentence:
+            "DORA betrifft Finanzunternehmen und ICT-Dienstleister, die digitale Betriebsstabilität nachweisen müssen – inklusive Risikomanagement, Berichterstattung und Resilienzmaßnahmen.",
+        };
       default:
         return {
           label: baseLabel,
@@ -196,7 +274,7 @@ function getProductContext(
     }
   }
 
-  // Nicht-DE in Englisch (kannst du bei Bedarf noch lokalisieren)
+  // Nicht-DE in Englisch 
   switch (kind) {
     case "isae3402":
       return {
@@ -226,6 +304,70 @@ function getProductContext(
         relevanceSentence:
           "SOC 2 is relevant if you provide services with strong requirements around security, availability or privacy.",
       };
+    case "isae3000":
+      return {
+        label: "ISAE 3000",
+        requestSentence: `The lead used the web form to request information about ISAE 3000.`,
+        relevanceSentence:
+          "ISAE 3000 is relevant when you need assurance on non-financial processes — such as privacy, information security, or compliance — through an independent audit.",
+      };
+
+    case "ps951":
+      return {
+        label: "PS 951",
+        requestSentence: `The lead used the web form to request information about PS 951.`,
+        relevanceSentence:
+          "PS 951 is important for service providers whose processes must follow a structured internal control system and be transparent and auditable.",
+      };
+
+    case "grc_soc2":
+      return {
+        label: "GRC Essentials SOC 2",
+        requestSentence: `The lead used the web form to request information about GRC Essentials SOC 2.`,
+        relevanceSentence:
+          "GRC Essentials SOC 2 helps you prepare for a SOC 2 audit by structuring risk management, controls, and documentation in a practical framework.",
+      };
+
+    case "iso27001":
+      return {
+        label: "ISO 27001",
+        requestSentence: `The lead used the web form to request information about ISO 27001.`,
+        relevanceSentence:
+          "ISO 27001 is relevant if you need to build or certify an Information Security Management System (ISMS) to demonstrate security and compliance.",
+      };
+
+    case "iso9001":
+      return {
+        label: "ISO 9001",
+        requestSentence: `The lead used the web form to request information about ISO 9001.`,
+        relevanceSentence:
+          "ISO 9001 matters if you need an effective quality management system to ensure consistent, efficient, and customer-focused processes.",
+      };
+
+    case "nis2":
+      return {
+        label: "NIS 2",
+        requestSentence: `The lead used the web form to request information about NIS 2.`,
+        relevanceSentence:
+          "NIS 2 is important if you provide essential or important services and must comply with new requirements for security, risk management, and incident reporting.",
+      };
+
+    case "grc_c5":
+      return {
+        label: "GRC Essentials BSI C5",
+        requestSentence: `The lead used the web form to request information about GRC Essentials BSI C5.`,
+        relevanceSentence:
+          "GRC Essentials BSI C5 helps you implement the BSI C5 standard efficiently — including controls, documentation, and audit preparation.",
+      };
+
+    case "dora":
+      return {
+        label: "DORA",
+        requestSentence: `The lead used the web form to request information about DORA.`,
+        relevanceSentence:
+          "DORA applies to financial entities and ICT service providers who must demonstrate digital operational resilience, including risk management, reporting, and operational continuity.",
+      };
+
     default:
       return {
         label: baseLabel,
