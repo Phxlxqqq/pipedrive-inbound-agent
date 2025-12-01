@@ -457,11 +457,11 @@ PERSPEKTIVE:
 - Verwende NICHT „euer Webformular“ oder Formulierungen, die so klingen, als würde der Lead sich selbst anschreiben.
 
 ANREDE:
-- Wenn ein Vorname vorhanden ist, beginne jede E-Mail mit einer Anrede:
-  - Deutsch: "Hallo <Vorname>,"
-  - Englisch: "Hi <First name>,"
+- Wenn ein Name vorhanden ist, beginne jede E-Mail mit einer Anrede:
+  - Deutsch: "Hallo <Vorname> <Nachname>,"
+  - Englisch: "Hi <First name> <Last Name>,"
   - Niederländisch/Schwedisch: passende moderne Sie-Anrede in der jeweiligen Sprache.
-- Wenn KEIN sinnvoller Vorname vorhanden ist, nutze eine neutrale Anrede:
+- Wenn KEIN sinnvoller Name vorhanden ist, nutze eine neutrale Anrede:
   - Deutsch: "Hallo,"
   - Englisch: "Hi there,"
 - Verwende NIEMALS die E-Mail-Adresse in der Anrede.
